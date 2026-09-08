@@ -1,0 +1,44 @@
+[
+  {
+    "Description": "Generic API Key",
+    "StartLine": 12,
+    "EndLine": 12,
+    "File": "config/settings.py",
+    "Commit": "a1b2c3d4",
+    "Author": "Jane Doe",
+    "Email": "jane@example.com",
+    "Date": "2026-01-15T10:00:00Z",
+    "Message": "fix: update config",
+    "Tags": [],
+    "RuleID": "generic-api-key",
+    "Fingerprint": "a1b2c3d4:config/settings.py:generic-api-key:12"
+  },
+  {
+    "Description": "AWS Access Key",
+    "StartLine": 47,
+    "EndLine": 47,
+    "File": "deploy/terraform/main.tf",
+    "Commit": "e5f6a7b8",
+    "Author": "John Roe",
+    "Email": "john@example.com",
+    "Date": "2026-02-03T14:22:10Z",
+    "Message": "chore: bump infra",
+    "Tags": [],
+    "RuleID": "aws-access-token",
+    "Fingerprint": "e5f6a7b8:deploy/terraform/main.tf:aws-access-token:47"
+  },
+  {
+    "Description": "GitHub Personal Access Token",
+    "StartLine": 3,
+    "EndLine": 3,
+    "File": ".env.example",
+    "Commit": "c9d0e1f2",
+    "Author": "Jane Doe",
+    "Email": "jane@example.com",
+    "Date": "2026-03-19T08:05:00Z",
+    "Message": "docs: add env example",
+    "Tags": [],
+    "RuleID": "github-pat",
+    "Fingerprint": "c9d0e1f2:.env.example:github-pat:3"
+  }
+]

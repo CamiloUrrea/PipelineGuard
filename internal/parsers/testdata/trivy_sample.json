@@ -1,0 +1,43 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": ".",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "go.sum",
+      "Class": "lang-pkgs",
+      "Type": "gomod",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-12345",
+          "PkgName": "github.com/example/vulnerable-pkg",
+          "InstalledVersion": "1.2.3",
+          "FixedVersion": "1.2.4",
+          "Title": "example: buffer overflow in parser",
+          "Severity": "CRITICAL",
+          "References": ["https://example.com/CVE-2024-12345"]
+        },
+        {
+          "VulnerabilityID": "CVE-2023-99999",
+          "PkgName": "github.com/example/leaky-lib",
+          "InstalledVersion": "0.5.0",
+          "FixedVersion": "0.6.0",
+          "Title": "example: information disclosure via verbose errors",
+          "Severity": "MEDIUM"
+        },
+        {
+          "VulnerabilityID": "GHSA-xxxx-yyyy-zzzz",
+          "PkgName": "github.com/example/mystery-mod",
+          "InstalledVersion": "2.0.1",
+          "Title": "example: unspecified issue pending analysis",
+          "Severity": "UNKNOWN"
+        }
+      ]
+    },
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    }
+  ]
+}
