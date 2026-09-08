@@ -1,0 +1,29 @@
+# Binaries and build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# GoReleaser build output
+/dist/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (keep .env.example tracked)
+.env
+.env.*
+!.env.example
