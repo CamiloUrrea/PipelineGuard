@@ -1,0 +1,52 @@
+# GoReleaser configuration for PipelineGuard.
+# Schema reference: https://goreleaser.com/customization/
+#
+# NOT validated with `goreleaser check` on this machine — GoReleaser is not
+# installed here (see docs/goreleaser.md). Written against the v2 schema
+# (formats/format_overrides as lists, introduced in GoReleaser v2.4).
+#
+# Local test (no git tag, no publishing):
+#   goreleaser release --snapshot --clean
+version: 2
+project_name: pipelineguard
+
+builds:
+  - id: pipelineguard
+    main: ./cmd/pipelineguard
+    binary: pipelineguard
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: pipelineguard-archive
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^chore:'
+  groups:
+    - title: Features
+      regexp: '^feat'
+    - title: Fixes
+      regexp: '^fix'
+
+release:
+  github:
+    owner: CamiloUrrea
+    name: PipelineGuard
