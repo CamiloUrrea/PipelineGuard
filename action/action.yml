@@ -25,8 +25,9 @@ outputs:
   exit-code:
     description: >-
       Código de salida de pipelineguard: 0 = OK, 1 = violación de seguridad real
-      (según enforce/fail_threshold), 2 = fallo de la herramienta. El step NO
-      falla por 1 ni 2; un step posterior decide si el job completo falla.
+      (según enforce/fail_threshold), 2 = fallo de la herramienta. El step "Run
+      pipelineguard" NO falla por 1 ni 2; el step "Enforce PipelineGuard result"
+      lee este output y decide si el job completo falla (ver docs/action-gate.md).
     value: ${{ steps.run.outputs.exit-code }}
   report-path:
     description: "Ruta del reporte Markdown generado (relativa al workspace)."
@@ -65,3 +66,10 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GH_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/comment.sh"
+
+    - name: Enforce PipelineGuard result
+      if: always()
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.run.outputs.exit-code }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/gate.sh"

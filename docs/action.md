@@ -12,8 +12,12 @@ con una línea:
 > puede validar corriendo la Action de verdad en un workflow real, y eso
 > **todavía no se ha hecho** (no hay release publicada ni workflow de ejemplo).
 > Lo único verificado localmente es que el archivo es YAML sintácticamente válido
-> y que sus dos scripts (`install.sh`, `run.sh`) pasan shellcheck + bats por
-> separado.
+> y que sus cuatro scripts (`install.sh`, `run.sh`, `comment.sh`, `gate.sh`) pasan
+> shellcheck + bats por separado.
+
+**Versión completa.** Con el Bloque 16 (`gate.sh`) `action.yml` llega a su forma
+final: los **5 steps** descritos abajo son todos los que tiene la composite
+action. No queda ningún step pendiente por añadir en un bloque futuro.
 
 ## Permisos requeridos en el workflow que la usa
 
@@ -44,8 +48,8 @@ responsabilidad del workflow llamante.
 | `exit-code`   | `steps.run.outputs.exit-code`       | Código de salida de `pipelineguard`: `0` OK · `1` violación de seguridad real · `2` fallo de la herramienta. **El step no falla por `1` ni `2`** — ver `docs/action-run.md`. |
 | `report-path` | `steps.run.outputs.report-path`     | Ruta del reporte Markdown generado (`pipelineguard-report.md`). |
 
-Un bloque futuro añadirá el step que lee `exit-code` y decide si el job completo
-falla.
+El step 5 (`Enforce PipelineGuard result`, `action/scripts/gate.sh`) lee
+`exit-code` y decide si el job completo falla — ver `docs/action-gate.md`.
 
 ## Steps
 
@@ -81,6 +85,13 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GH_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/comment.sh"
+
+    - name: Enforce PipelineGuard result
+      if: always()
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.run.outputs.exit-code }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/gate.sh"
 ```
 
 1. **Install pipelineguard** — corre `scripts/install.sh` con el tag de release
@@ -98,6 +109,14 @@ runs:
    reporte Markdown como comentario del PR, **actualizando** el comentario
    anterior de PipelineGuard en vez de crear uno nuevo. Restringido a eventos
    `pull_request`. Ver `docs/action-comment.md`.
+5. **Enforce PipelineGuard result** — corre `scripts/gate.sh`, que lee
+   `steps.run.outputs.exit-code` y es quien finalmente hace fallar (o no) el job:
+   silencio en `0`, `exit 1` en `1` (violación de seguridad real), `exit 2` en `2`
+   (fallo de la herramienta), y `exit 1` con mensaje de bug de wiring si el valor
+   viene vacío o no es uno de esos tres códigos. `if: always()` para que corra
+   incluso si los steps 3 o 4 fallaron de verdad. Es el **único** step de la
+   Action al que le corresponde decidir el resultado final del job en base al
+   análisis de seguridad. Ver `docs/action-gate.md`.
 
 ## Step 3 — Subida de SARIF a GitHub Security
 
@@ -166,11 +185,14 @@ convención de pinear al tag mayor flotante, igual que el resto del proyecto.
   importar desde qué repo se invoque la action.
 - **`shell: bash`** — obligatorio en composite actions; garantiza bash en Linux,
   macOS y Windows runners.
-- **`if: always()` en los steps 3 y 4** — corren aunque un step anterior falle.
-  En el camino normal `run.sh` termina con `exit 0` y no haría falta, pero se
-  agrega por robustez. El step 4 añade `&& github.event_name == 'pull_request'`
+- **`if: always()` en los steps 3, 4 y 5** — corren aunque un step anterior
+  falle. En el camino normal `run.sh` termina con `exit 0` y no haría falta, pero
+  se agrega por robustez. El step 4 añade `&& github.event_name == 'pull_request'`
   porque solo hay un PR al que comentar en ese tipo de evento (ver
-  `docs/action-comment.md`).
+  `docs/action-comment.md`). El step 5 (`gate.sh`) es el que finalmente hace
+  fallar el job por el resultado del análisis de seguridad — necesita `always()`
+  precisamente para poder correr y emitir ese veredicto incluso si los steps 3 o 4
+  fallaron por su cuenta (ver `docs/action-gate.md`).
 - **`GH_TOKEN: ${{ github.token }}`** — el step 4 usa `gh api`, que lee el token
   de `GH_TOKEN`. Es el `GITHUB_TOKEN` del job; necesita `pull-requests: write`.
 - `branding` (`icon: shield`, `color: purple`) — solo estética para el

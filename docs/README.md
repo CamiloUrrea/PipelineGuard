@@ -20,3 +20,4 @@ PipelineGuard es una herramienta en Go que orquesta escáneres de seguridad
 - [Bloque 13] Ejecución del binario y composite action (action.yml) — ver docs/action-run.md y docs/action.md
 - [Bloque 14] Subida de SARIF a GitHub Security — ver docs/action.md
 - [Bloque 15] Publicación/actualización del comentario en el PR (action/scripts/comment.sh) — ver docs/action-comment.md
+- [Bloque 16] Step final de enforcement (action/scripts/gate.sh) — ver docs/action-gate.md
