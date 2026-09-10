@@ -1,0 +1,67 @@
+name: PipelineGuard
+description: >-
+  Orquesta escáneres de seguridad (gitleaks, trivy) y consolida sus hallazgos en
+  un reporte unificado con severidad normalizada y risk score.
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  version:
+    description: >-
+      Tag de release del binario de PipelineGuard a instalar (p. ej. "v1", "v1.2.3").
+    required: false
+    default: "v1"
+  config-path:
+    description: "Ruta al archivo de configuración .pipelineguard.yml."
+    required: false
+    default: ".pipelineguard.yml"
+  sarif-output:
+    description: "Ruta donde el binario escribe el reporte SARIF."
+    required: false
+    default: "pipelineguard-results.sarif"
+
+outputs:
+  exit-code:
+    description: >-
+      Código de salida de pipelineguard: 0 = OK, 1 = violación de seguridad real
+      (según enforce/fail_threshold), 2 = fallo de la herramienta. El step NO
+      falla por 1 ni 2; un step posterior decide si el job completo falla.
+    value: ${{ steps.run.outputs.exit-code }}
+  report-path:
+    description: "Ruta del reporte Markdown generado (relativa al workspace)."
+    value: ${{ steps.run.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install pipelineguard
+      shell: bash
+      env:
+        PIPELINEGUARD_VERSION: ${{ inputs.version }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh" "${PIPELINEGUARD_VERSION}"
+
+    - name: Run pipelineguard
+      id: run
+      shell: bash
+      env:
+        CONFIG_PATH: ${{ inputs.config-path }}
+        SARIF_OUTPUT: ${{ inputs.sarif-output }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/run.sh"
+
+    # ${{ }} is appropriate here: this value is a declarative input to another
+    # action, not interpolated into a bash `run:` — no shell-injection surface.
+    - name: Upload SARIF results
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-output }}
+
+    - name: Post or update PR comment
+      if: always() && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        REPORT_PATH: ${{ steps.run.outputs.report-path }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ github.token }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/comment.sh"
