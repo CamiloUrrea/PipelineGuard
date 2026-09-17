@@ -110,6 +110,11 @@ run_comment_sh() {
 	grep -q -- "-X PATCH" "$GH_CALLS_LOG"
 	grep -q "issues/comments/4242" "$GH_CALLS_LOG"
 	! grep -q -- "-X POST" "$GH_CALLS_LOG"
+
+	# Regression: body must be sent with -F (--field), which resolves the "@"
+	# prefix into "read this file". -f (--raw-field) sends "@path" literally.
+	grep -q -- "-F body=@" "$GH_CALLS_LOG"
+	! grep -q -- "-f body=@" "$GH_CALLS_LOG"
 }
 
 @test "flow: no existing comment -> POST, not PATCH" {
@@ -121,6 +126,11 @@ run_comment_sh() {
 	grep -q -- "-X POST" "$GH_CALLS_LOG"
 	grep -q "issues/5/comments" "$GH_CALLS_LOG"
 	! grep -q -- "-X PATCH" "$GH_CALLS_LOG"
+
+	# Regression: body must be sent with -F (--field), which resolves the "@"
+	# prefix into "read this file". -f (--raw-field) sends "@path" literally.
+	grep -q -- "-F body=@" "$GH_CALLS_LOG"
+	! grep -q -- "-f body=@" "$GH_CALLS_LOG"
 }
 
 @test "flow: PR_NUMBER unset -> immediate clear error, gh never called" {

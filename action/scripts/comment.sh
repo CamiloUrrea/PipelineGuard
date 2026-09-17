@@ -80,11 +80,11 @@ main() {
 	if [[ -n "$existing_id" ]]; then
 		echo "comment.sh: updating existing comment ${existing_id}"
 		gh api "repos/{owner}/{repo}/issues/comments/${existing_id}" \
-			-X PATCH -f "body=@${body_file}"
+			-X PATCH -F "body=@${body_file}"
 	else
 		echo "comment.sh: creating a new comment on PR #${PR_NUMBER}"
 		gh api "repos/{owner}/{repo}/issues/${PR_NUMBER}/comments" \
-			-X POST -f "body=@${body_file}"
+			-X POST -F "body=@${body_file}"
 	fi
 
 	rm -f "$body_file"

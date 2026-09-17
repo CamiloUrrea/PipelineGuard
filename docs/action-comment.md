@@ -7,11 +7,12 @@ composite action (`action.yml`).
 
 > ⚠️ **Verificación en esta máquina:** ni `gh` ni `jq` estaban instalados. Instalé
 > **jq 1.8.2** (`winget install jqlang.jq`) para poder testear `find_comment_id`
-> de verdad. **`gh` sigue sin instalarse** — no pude confirmar con `gh api --help`
-> la sintaxis real de los placeholders `{owner}/{repo}` ni de `-f body=@archivo`.
-> El script sigue la sintaxis documentada de `gh api`; los tests usan un `gh`
-> **falso**. La validación real end-to-end requiere `gh` + un PR real, que aún no
-> se ha hecho.
+> de verdad. **`gh` sigue sin instalarse** para los tests bats (usan un `gh`
+> **falso**), pero la validación end-to-end con `gh` real y un PR real sí se hizo
+> y encontró un bug: el script usaba `-f body=@archivo` en vez de
+> `-F body=@archivo`, así que el PR recibió el texto literal `@/tmp/tmp.XXXXXXXX`
+> en lugar del reporte. Ver [Bug real: `-f` vs `-F` en `gh api`](#bug-real-f-vs-f-en-gh-api)
+> más abajo.
 
 ## El marcador y la lógica update-vs-create
 
@@ -65,7 +66,26 @@ array o un `[]` vacío. Cubierto por los tests bats.
    `{owner}/{repo}` desde `GH_REPO`; en Actions `GITHUB_REPOSITORY` siempre está,
    así que se usa como fallback.
 5. Construye el body en un archivo temporal con `build_comment_body`.
-6. Lista comentarios → `find_comment_id` → PATCH o POST con `-f body=@<tmp>`.
+6. Lista comentarios → `find_comment_id` → PATCH o POST con `-F body=@<tmp>`.
+
+### Bug real: `-f` vs `-F` en `gh api`
+
+`gh api` tiene dos flags para pasar campos que **no son intercambiables**:
+
+- `-f` / `--raw-field` — envía el valor **tal cual, literal**. El prefijo `@` no
+  se interpreta nunca; es un carácter más del string.
+- `-F` / `--field` — además de tipar el valor (`true`/`false`/`null`/números),
+  es el único que reconoce el prefijo `@archivo` como "lee el contenido de este
+  archivo y úsalo como valor".
+
+El bug real detectado en la validación end-to-end: el script usaba
+`-f "body=@${body_file}"`. Como `-f` nunca resuelve `@`, el comentario
+publicado en el PR contenía literalmente el texto `@/tmp/tmp.XXXXXXXX` en vez
+del reporte Markdown. El fix es usar `-F "body=@${body_file}"` en **ambas**
+llamadas (PATCH y POST) — no es un detalle de estilo ni de mayúscula/minúscula
+arbitraria, es la única flag de `gh api` que sabe leer un archivo con `@`.
+Cubierto por un test bats que falla si alguna de las dos llamadas vuelve a usar
+`-f` para `body`.
 
 ## Por qué el step se restringe a `pull_request`
 
@@ -116,3 +136,6 @@ escritura simulada según se le llame) y usa `jq` real. Cubre:
 - Flujo con "no hay comentarios" → se llama **POST**, no PATCH.
 - `PR_NUMBER` vacío → error inmediato, `gh` nunca se invoca.
 - Archivo de reporte ausente → error claro antes de cualquier escritura con `gh`.
+- Regresión del bug `-f` vs `-F`: tanto el flujo de PATCH como el de POST
+  verifican que la llamada a `gh api` use `-F body=@<archivo>` y **no**
+  `-f body=@<archivo>`.
