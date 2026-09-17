@@ -28,7 +28,7 @@ distintos:
 |--------|----------------------------------------------------------------------------------------------|
 | `0`    | Ejecución exitosa. Ningún hallazgo supera el umbral configurado (o `enforce: false`).         |
 | `1`    | Ejecución exitosa, pero `policy.ShouldFail` determinó que el build debe fallar. **Es una violación de seguridad real, no un error de la herramienta.** |
-| `2`    | **Fallo de la herramienta en sí**: config inválido, error de un escáner, error escribiendo el archivo SARIF. Nunca se confunde con el caso `1`. |
+| `2`    | **Fallo de la herramienta en sí**: config inválido, error de un escáner, error escribiendo el archivo SARIF, o error escribiendo el reporte Markdown a stdout. Nunca se confunde con el caso `1`. |
 
 La distinción `1` vs `2` importa: un pipeline puede querer tratar "encontramos un
 secreto" (`1`) distinto de "PipelineGuard se rompió" (`2`) — por ejemplo, marcar
@@ -82,6 +82,9 @@ sin tocar el disco:
   capturado.
 - `writeFile` falla (disco lleno simulado) → exit `2` aunque el escaneo haya sido
   exitoso, y el Markdown **no** se imprime (se aborta antes).
+- El `io.Writer` de stdout falla al escribir (p. ej. un pipe roto) → exit `2`
+  aunque el escaneo y la escritura del SARIF hayan sido exitosos; el error de
+  `fmt.Fprintln` se captura explícitamente en vez de ignorarse.
 - Los defaults de los flags `--config` y `--sarif-output`.
 
 ## Cómo compilar y probar

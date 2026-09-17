@@ -49,9 +49,15 @@ Tres jobs **independientes**, corren en paralelo (ninguno depende de otro vía
 ### Job `bash`
 
 1. `actions/checkout@v7`.
-2. Instala `shellcheck` (`apt-get install -y shellcheck`) y `bats-core`
-   (`npm install -g bats`) en el runner — `ubuntu-latest` no los trae listos
-   para el uso que necesitamos (versión pineada de bats vía npm).
+2. Instala `shellcheck` (`sudo apt-get install -y shellcheck`) y `bats-core`
+   (`sudo npm install -g bats`) en el runner — `ubuntu-latest` no los trae
+   listos para el uso que necesitamos (versión pineada de bats vía npm).
+   El `npm install -g` necesita `sudo` igual que el `apt-get`: sin él, la
+   primera corrida real de este workflow falló con `EACCES` porque el
+   usuario del runner no tiene permiso de escritura en el prefix global de
+   npm (`/usr/lib/node_modules` o similar) — el runner sí tiene `sudo` sin
+   contraseña disponible, como ya lo prueba el `apt-get` de la línea
+   anterior.
 3. `shellcheck action/scripts/*.sh`.
 4. `bats action/scripts/*.bats`.
 

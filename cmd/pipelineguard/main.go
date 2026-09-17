@@ -70,7 +70,10 @@ func runApp(
 		return exitCode(err, false)
 	}
 
-	fmt.Fprintln(stdout, result.Markdown)
+	if _, err := fmt.Fprintln(stdout, result.Markdown); err != nil {
+		fmt.Fprintf(os.Stderr, "pipelineguard: writing report to stdout: %v\n", err)
+		return exitCode(err, false)
+	}
 
 	if result.ShouldFail {
 		fmt.Fprintf(os.Stderr, "pipelineguard: %s\n", result.Reason)

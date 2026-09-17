@@ -134,6 +134,32 @@ func TestRunApp_WriteFileErrorReturnsTwoEvenOnSuccessfulScan(t *testing.T) {
 		"markdown must not be printed if the SARIF write failed first")
 }
 
+// failingWriter is a minimal io.Writer fake whose Write always errors, used
+// to simulate a broken stdout (e.g. a closed pipe).
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("broken pipe")
+}
+
+func TestRunApp_StdoutWriteErrorReturnsTwoEvenOnSuccessfulScan(t *testing.T) {
+	code := runApp(
+		"x.yml", "results.sarif",
+		okConfig,
+		func(config.Config) (orchestrator.Result, error) {
+			return orchestrator.Result{
+				Markdown:   "## 🛡️ PipelineGuard — Risk Score: 0",
+				SARIF:      []byte("{}"),
+				ShouldFail: false,
+			}, nil
+		},
+		func(string, []byte) error { return nil },
+		failingWriter{},
+	)
+
+	assert.Equal(t, 2, code, "a failure to print the report to stdout is a tool error, even if the scan succeeded")
+}
+
 func TestNewRootCmd_VersionIsWired(t *testing.T) {
 	assert.Equal(t, version, newRootCmd().Version)
 }
