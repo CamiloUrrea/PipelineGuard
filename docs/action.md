@@ -8,12 +8,14 @@ con una línea:
 - uses: CamiloUrrea/PipelineGuard/action@v1
 ```
 
-> ⚠️ **Sin tests automáticos.** `action.yml` en sí **no** tiene pruebas: solo se
-> puede validar corriendo la Action de verdad en un workflow real, y eso
-> **todavía no se ha hecho** (no hay release publicada ni workflow de ejemplo).
-> Lo único verificado localmente es que el archivo es YAML sintácticamente válido
-> y que sus cuatro scripts (`install.sh`, `run.sh`, `comment.sh`, `gate.sh`) pasan
-> shellcheck + bats por separado.
+> ⚠️ **Sin tests automáticos de `action.yml`.** El archivo en sí no tiene pruebas
+> unitarias: se valida localmente como YAML sintáctico y con sus cuatro scripts
+> (`install.sh`, `run.sh`, `comment.sh`, `gate.sh`), que pasan shellcheck + bats
+> por separado (también en CI, ver `docs/ci-cd.md`). La Action **sí se probó
+> de verdad** en un workflow real, contra un Pull Request real en
+> `pipelineguard-demo-vulnerable-app`, con la release `v0.1.0` publicada. Esa
+> validación end-to-end encontró el bug de `-f` vs `-F` en `gh api` (ver
+> `docs/action-comment.md`).
 
 **Versión completa.** Con el Bloque 16 (`gate.sh`) `action.yml` llega a su forma
 final: los **5 steps** descritos abajo son todos los que tiene la composite
@@ -61,6 +63,7 @@ runs:
       shell: bash
       env:
         PIPELINEGUARD_VERSION: ${{ inputs.version }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh" "${PIPELINEGUARD_VERSION}"
 
     - name: Run pipelineguard
@@ -73,7 +76,7 @@ runs:
 
     - name: Upload SARIF results
       if: always()
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ inputs.sarif-output }}
 
@@ -94,10 +97,13 @@ runs:
       run: bash "${GITHUB_ACTION_PATH}/scripts/gate.sh"
 ```
 
-1. **Install pipelineguard** — corre `scripts/install.sh` con el tag de release
-   como argumento posicional. `install.sh` detecta OS/arch, descarga el archive y
-   `checksums.txt` desde GitHub Releases, **verifica el checksum**, extrae el
-   binario y lo añade a `$GITHUB_PATH` (ver `docs/action-install.md`).
+1. **Install pipelineguard** — corre `scripts/install.sh` con el input `version`
+   como argumento posicional. `install.sh` resuelve un major desnudo (`v1`, el
+   default) a la release real más alta de esa serie (`resolve_version`, que
+   consulta la API de Releases autenticándose con el `GITHUB_TOKEN` que este step
+   le pasa). Luego detecta OS/arch, descarga el archive y `checksums.txt` desde
+   GitHub Releases, **verifica el checksum**, extrae el binario y lo añade a
+   `$GITHUB_PATH` (ver `docs/action-install.md`).
 2. **Run pipelineguard** (`id: run`) — corre `scripts/run.sh`, que ejecuta el
    binario, manda su Markdown a `pipelineguard-report.md`, y escribe
    `exit-code` / `report-path` en `$GITHUB_OUTPUT`. **Nunca falla el step** por un
@@ -123,7 +129,7 @@ runs:
 ```yaml
 - name: Upload SARIF results
   if: always()
-  uses: github/codeql-action/upload-sarif@v3
+  uses: github/codeql-action/upload-sarif@v4
   with:
     sarif_file: ${{ inputs.sarif-output }}
 ```
@@ -132,8 +138,8 @@ runs:
 
 `sarif_file` es un **input declarativo de otra action**, no un valor que se
 interpola dentro de un `run:` de bash. No hay superficie de inyección de shell en
-este contexto, así que el patrón `env:` no aporta nada. (En los steps 1 y 2, que
-sí ejecutan bash, se sigue usando `env:`.)
+este contexto, así que el patrón `env:` no aporta nada. (Los otros **cuatro**
+steps, 1, 2, 4 y 5, ejecutan bash y **todos** usan `env:`.)
 
 ### Qué pasa en GitHub cuando el SARIF se sube
 
@@ -156,30 +162,50 @@ Investigado en la documentación de `github/codeql-action/upload-sarif`:
   error tipo `Path does not exist: <ruta>`. No se traga el error silenciosamente.
 - **Archivo vacío o SARIF inválido** (no es JSON, o no cumple el schema 2.1.0) →
   el step **falla** en la validación (`Invalid SARIF`, error de parseo JSON).
-- Como el step lleva `if: always()`, corre incluso si el step `run` terminó con
-  error real (binario ausente, en cuyo caso **no** se escribió ningún SARIF). En
-  ese caso este step **también** fallará por "archivo inexistente" — el resultado
-  neto es un job con dos steps en rojo, lo cual es correcto: la corrida ya estaba
-  rota.
+- Como el step lleva `if: always()`, corre incluso si no hubo binario (en ese
+  caso **no** se escribió ningún SARIF) y **también** falla por "archivo
+  inexistente". Ver "Si falta el binario: fallo en cascada" abajo.
 - En el **camino normal** esto no ocurre: el binario `pipelineguard` siempre
   escribe un SARIF **válido** aunque no haya hallazgos (`"results": []`,
   `"rules": []`, nunca `null` — requisito de `docs/sarif.md`), así que el archivo
   siempre existe y siempre pasa la validación.
 
-### Nota sobre la versión pineada `@v3`
+### Versión pineada `@v4`
 
-`github/codeql-action` va por el major **v3** (v3 salió en enero de 2024 y
-reemplazó a v2, que dejó de recibir soporte). Hasta donde llega mi conocimiento
-(**corte: enero de 2026**) **v3 es el major vigente y no existe un v4**. Si desde
-entonces se publicó un major más nuevo, convendría revisarlo; `@v3` sigue la
-convención de pinear al tag mayor flotante, igual que el resto del proyecto.
+El step usa `github/codeql-action/upload-sarif@v4`, el major vigente (antes
+estaba en `@v3`; se actualizó antes de cortar v1.0.0). Pinear al tag mayor
+flotante sigue la misma convención que el resto del proyecto.
+
+## Si falta el binario: fallo en cascada
+
+Si no hay binario `pipelineguard`, **no** falla un solo step. Por los
+`if: always()` de los steps 3, 4 y 5, fallan varios en cascada. Hay dos variantes:
+
+- **`install.sh` falla** (release no encontrada, checksum inválido, descarga
+  rota…): *Install* queda en rojo. *Run pipelineguard* no tiene `if:`, así que
+  GitHub lo **omite** (skipped), no lo marca como fallido.
+- **La instalación "termina" pero el binario no está en PATH**: *Run
+  pipelineguard* falla (`run.sh` sale con `exit 1`: `pipelineguard is not on
+  PATH — the install step must run first`).
+
+En ambos casos, después:
+
+| Step | Resultado | Por qué |
+|------|-----------|---------|
+| 3. Upload SARIF | ❌ falla | `if: always()`; no existe el archivo SARIF. |
+| 4. PR comment (solo en `pull_request`) | ❌ falla | `if: always()`; `steps.run.outputs.report-path` viene vacío, `comment.sh` cae al default `pipelineguard-report.md`, que no existe → `report file … not found`. |
+| 5. Enforce | ❌ falla (`exit 1`) | `if: always()`; `EXIT_CODE` vacío → mensaje de **bug de wiring de la Action** (ver `docs/action-gate.md`). |
+
+El mensaje de *Enforce* habla de un bug de wiring aunque la causa real sea la
+instalación. El primer step en rojo (*Install* o *Run*) es el que tiene la causa
+real.
 
 ### Detalles de implementación
 
-- **`env:` en vez de interpolar `${{ }}` dentro de `run:`** — los valores de los
-  inputs se exponen como variables de entorno y los scripts las leen desde ahí.
-  Evita el riesgo de inyección de shell de meter expresiones `${{ }}` directamente
-  en el cuerpo de `run:`.
+- **`env:` en vez de interpolar `${{ }}` dentro de `run:`** — los cuatro steps
+  que ejecutan bash (1, 2, 4 y 5) exponen sus valores como variables de entorno
+  y los scripts las leen desde ahí. Evita el riesgo de inyección de shell de
+  meter expresiones `${{ }}` directamente en el cuerpo de `run:`.
 - **`${GITHUB_ACTION_PATH}`** — GitHub lo setea a la carpeta de la action
   (`action/`), así que `${GITHUB_ACTION_PATH}/scripts/…` resuelve a los scripts sin
   importar desde qué repo se invoque la action.
@@ -195,5 +221,9 @@ convención de pinear al tag mayor flotante, igual que el resto del proyecto.
   fallaron por su cuenta (ver `docs/action-gate.md`).
 - **`GH_TOKEN: ${{ github.token }}`** — el step 4 usa `gh api`, que lee el token
   de `GH_TOKEN`. Es el `GITHUB_TOKEN` del job; necesita `pull-requests: write`.
+- **`GITHUB_TOKEN: ${{ github.token }}`** en el step 1 — `install.sh` lo usa solo
+  para autenticar la consulta a la API de Releases con la que resuelve `v1` a una
+  versión exacta. Así evita el límite anónimo de 60 req/h por IP. Solo lee
+  releases públicas y no necesita permisos extra.
 - `branding` (`icon: shield`, `color: purple`) — solo estética para el
   Marketplace.

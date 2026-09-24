@@ -4,13 +4,15 @@
 plataformas soportadas, genera checksums y un changelog, y publica el GitHub
 Release. Este archivo define todo ese flujo.
 
-> ⚠️ **Estado de validación en esta máquina:** GoReleaser **no está instalado**
-> aquí (`goreleaser --version` → `command not found`; tampoco está en `~/go/bin`
-> ni como shim de scoop). Por eso **no se pudo correr `goreleaser check` ni
-> `goreleaser release --snapshot --clean`**. Lo único verificado localmente es
-> que el archivo es **YAML sintácticamente válido** (parseado con `gopkg.in/yaml.v3`).
-> La semántica del schema y la convención de nombres descritas abajo vienen de la
-> documentación de GoReleaser v2, no de una ejecución real.
+> ⚠️ **Estado de validación:** GoReleaser **no está instalado** en la máquina
+> de desarrollo, así que localmente no se corrió `goreleaser check` ni
+> `goreleaser release --snapshot --clean`. Localmente solo se verifica que el
+> archivo es **YAML sintácticamente válido** (`gopkg.in/yaml.v3`). La config
+> **sí** corre de verdad en CI: `.github/workflows/release.yml` ejecuta
+> GoReleaser en cada tag `v*` y publica el GitHub Release (ver `docs/ci-cd.md`).
+> La release `v0.1.0` existe, y la Action instaló sus assets en un workflow real
+> (ver `docs/action.md`), así que la convención de nombres de abajo ya se
+> comprobó en la práctica.
 
 ## Cómo probarlo localmente (cuando GoReleaser esté disponible)
 
@@ -41,11 +43,13 @@ antes de empezar. Los artefactos quedan en `dist/`.
 | `goarch` | `amd64, arm64` | Intel/AMD y ARM (Apple Silicon, runners ARM). |
 | `ldflags` | `-s -w -X main.version={{.Version}}` | `-s -w` quitan tabla de símbolos y DWARF (binario más pequeño). `-X main.version=...` inyecta la versión. |
 
-> **Nota sobre `-X main.version`:** `cmd/pipelineguard/main.go` **todavía no
-> declara** una variable `version` (el Bloque 10 no la incluyó y este bloque no
-> toca `cmd/`). El linker de Go **ignora silenciosamente** un `-X` a un símbolo
-> inexistente, así que esto no rompe el build; simplemente la inyección no tiene
-> efecto hasta que un bloque futuro añada `var version = "dev"` a `main`.
+> **Nota sobre `-X main.version`:** `cmd/pipelineguard/main.go` declara
+> `var version = "dev"` y la usa como `Version` del comando Cobra, así que la
+> inyección tiene efecto: `pipelineguard --version` imprime la versión del
+> release (ver `docs/cmd.md`). `TestNewRootCmd_VersionIsWired` verifica ese
+> cableado. (El linker de Go ignora en silencio un `-X` a un símbolo
+> inexistente, así que si alguien renombrara la variable el build no fallaría.
+> Ese test es la red de seguridad.)
 
 La matriz produce **6 binarios**: `{linux,darwin,windows} × {amd64,arm64}`.
 
@@ -67,8 +71,10 @@ Por defecto GoReleaser incluye en cada archive, además del binario, los archivo
 ### `checksum`
 
 `name_template: 'checksums.txt'` — un único archivo `checksums.txt` con el
-SHA-256 de cada archive. El instalador del Bloque 12 lo usará para verificar la
-descarga.
+SHA-256 de cada archive. El instalador (`action/scripts/install.sh`) lo usa para
+verificar la descarga. **No** hay firma configurada: `checksums.txt` no va
+firmado (cosign es roadmap v1.4; ver `docs/action-install.md` para lo que eso
+implica).
 
 ### `changelog`
 
@@ -80,9 +86,13 @@ descarga.
 ### `release`
 
 `github: { owner: CamiloUrrea, name: PipelineGuard }` — el repo donde se publica
-el GitHub Release. **Este bloque no publica nada** (solo modo snapshot local).
+el GitHub Release. La publicación la hace `.github/workflows/release.yml` al
+empujar un tag `v*`. Localmente solo tiene sentido el modo `--snapshot`, que no
+publica nada. No hay `prerelease: auto`: un tag como `v1.1.0-rc.1` se publica
+como release normal en GitHub. (El tag flotante y `install.sh` igual lo ignoran,
+porque filtran por formato `vX.Y.Z`.)
 
-## Convención de nombres de los artefactos (CRÍTICO para el Bloque 12)
+## Convención de nombres de los artefactos (CRÍTICO para `install.sh`)
 
 Con `name_template = {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}`,
 `project_name = pipelineguard`, y `.Version` = el tag **sin** la `v` inicial
@@ -107,18 +117,19 @@ Valores exactos de las variables:
 **Dentro** de cada archive: el binario `pipelineguard` (Unix) o
 `pipelineguard.exe` (Windows), en la raíz del archive (sin subdirectorio).
 
-El instalador del Bloque 12 tendrá que mapear la salida de `uname -s` / `uname -m`
-del runner a estos valores (`Linux`→`linux`, `Darwin`→`darwin`, `x86_64`→`amd64`,
-`aarch64`/`arm64`→`arm64`) y descargar
+El instalador (`install.sh`, ver `docs/action-install.md`) mapea la salida de
+`uname -s` / `uname -m` del runner a estos valores (`Linux`→`linux`,
+`Darwin`→`darwin`, `MINGW*`/`MSYS*`/`CYGWIN*`→`windows`, `x86_64`→`amd64`,
+`aarch64`/`arm64`→`arm64`) y descarga
 `pipelineguard_<version>_<os>_<arch>.<tar.gz|zip>` desde los assets del release.
 
 ### Modo snapshot
 
 `goreleaser release --snapshot` produce nombres **distintos**: `.Version` incluye
 un sufijo tipo `-SNAPSHOT-<commit>` (p. ej.
-`pipelineguard_1.2.4-SNAPSHOT-abc1234_linux_amd64.tar.gz`). El instalador del
-Bloque 12 apunta a los nombres de **release real** de la tabla de arriba, no a los
-de snapshot.
+`pipelineguard_1.2.4-SNAPSHOT-abc1234_linux_amd64.tar.gz`). El instalador
+apunta a los nombres de **release real** de la tabla de arriba, no a los de
+snapshot.
 
 ## Contenido esperado de `dist/` tras `goreleaser release --snapshot --clean`
 

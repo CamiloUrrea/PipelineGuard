@@ -22,3 +22,7 @@ PipelineGuard es una herramienta en Go que orquesta escáneres de seguridad
 - [Bloque 15] Publicación/actualización del comentario en el PR (action/scripts/comment.sh) — ver docs/action-comment.md
 - [Bloque 16] Step final de enforcement (action/scripts/gate.sh) — ver docs/action-gate.md
 - [Bloque 17] CI/CD del propio proyecto (.github/workflows/) — ver docs/ci-cd.md
+- [Bloque 18] Fix de errcheck en main.go y sudo en instalación de bats (CI) — ver docs/cmd.md y docs/ci-cd.md
+- [Bloque 19] Escape de pipes en reportes, limpieza de temporales, timeout de escáneres — ver docs/report.md, docs/action-comment.md, docs/scanners.md
+- [Bloque 20] Fix de set +e en install_test.bats y tag flotante v1 en release.yml — ver docs/action-install.md, docs/ci-cd.md, docs/ARCHITECTURE.md
+- [Bloque 21] Guardia de pre-release y resolve_version en install.sh — ver docs/action-install.md, docs/ci-cd.md

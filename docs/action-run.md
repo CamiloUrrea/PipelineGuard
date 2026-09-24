@@ -52,20 +52,27 @@ comentario del PR— **no se ejecutarían** (un step fallido corta el job salvo
 Por eso:
 
 - `run.sh` guarda el código en el output `exit-code` y termina con `exit 0`.
-- Un **step futuro** (bloque posterior), después de subir SARIF y comentar el PR,
-  leerá `steps.run.outputs.exit-code` y **ahí** decidirá si el job completo falla
-  (típicamente: fallar si es `1`; y `2` según política del equipo).
+- El step final **`Enforce PipelineGuard result`** (`gate.sh`, ver
+  `docs/action-gate.md`) corre después de subir el SARIF y comentar el PR. Lee
+  `steps.run.outputs.exit-code` y **ahí** se decide si el job completo falla:
+  `0` → pasa, `1` → `exit 1` (violación de seguridad), `2` → `exit 2` (fallo de
+  la herramienta). Cualquier otro valor, incluido vacío, da `exit 1` como bug de
+  wiring de la Action.
 
 Esto separa limpiamente "hubo un hallazgo" de "el pipeline se rompió", y deja la
 decisión de bloqueo en un único lugar explícito.
 
 ## La excepción: binario ausente
 
-Si `pipelineguard` **no está en PATH**, `install.sh` (Bloque 12) falló en su
-trabajo. No hay nada que diferir, ningún análisis que reportar, ningún exit code
-que guardar. En ese caso `run.sh` **sí** termina de inmediato con código ≠ 0 y un
+Si `pipelineguard` **no está en PATH**, la instalación no hizo su trabajo. No
+hay nada que diferir, ningún análisis que reportar, ningún exit code que
+guardar. En ese caso `run.sh` **sí** termina de inmediato con código ≠ 0 y un
 mensaje claro (`pipelineguard is not on PATH — the install step must run first`) —
 es un fallo duro de infraestructura de la Action, no del análisis de seguridad.
+Como `run.sh` no escribe `exit-code`, los steps siguientes con `if: always()`
+también fallan en cascada (SARIF, comentario, gate). Ver "Si falta el binario:
+fallo en cascada" en `docs/action.md`. (Si es `install.sh` el que falla con
+error, este step ni siquiera corre: GitHub lo omite.)
 
 ## Correr shellcheck y bats
 

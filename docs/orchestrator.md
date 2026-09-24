@@ -6,8 +6,10 @@ hallazgos, calcula el risk score, renderiza los reportes Markdown y SARIF, y
 consulta a `internal/policy` si el build debe fallar.
 
 Es el "pegamento" entre los paquetes de bloques anteriores. **No** ejecuta
-binarios reales ni escribe archivos a disco: eso es trabajo de
-`cmd/pipelineguard` (Bloque 9).
+binarios reales ni escribe archivos a disco. Ejecutar gitleaks/trivy es trabajo
+de `internal/scanners` (Bloque 9, `docs/scanners.md`); escribir el SARIF a disco
+e imprimir el Markdown es trabajo de `cmd/pipelineguard` (Bloque 10,
+`docs/cmd.md`).
 
 ## Los escáneres se inyectan como funciones
 
@@ -18,14 +20,18 @@ func Run(cfg config.Config, runGitleaks, runTrivy ScannerFunc) (Result, error)
 ```
 
 `Run` no sabe *cómo* se obtiene la salida de gitleaks o trivy: recibe dos
-`ScannerFunc` que, al invocarse, devuelven los bytes crudos del reporte (los
-mismos que la CLI escribiría en stdout) o un error.
+`ScannerFunc` que, al invocarse, devuelven los bytes crudos del reporte JSON o
+un error. En producción esos bytes se **leen del archivo de reporte** que cada
+escáner escribe (`--report-path` / `--output` a un archivo temporal), no se
+capturan de su stdout, que mezcla logs con el JSON (ver `docs/scanners.md`).
 
 **Por qué:** así toda la lógica de conexión —qué escáner correr, cómo parsear,
 cómo combinar, cuándo fallar— se puede testear con *closures* que devuelven
 bytes fijos o errores simulados, **sin depender de que gitleaks/trivy estén
-instalados**. En `cmd/pipelineguard` estas funciones envolverán `os/exec`; en los
-tests son funciones de una línea.
+instalados**. Las implementaciones reales son `scanners.RunGitleaks` /
+`scanners.RunTrivy` (`internal/scanners`, que envuelve `os/exec` con timeout).
+`cmd/pipelineguard` solo las inyecta. En los tests son closures de una
+línea.
 
 ## `Result`
 
@@ -71,9 +77,12 @@ Cuando `Run` devuelve un error, el `Result` que lo acompaña es el valor cero
 
 ## "Fallar ruidoso" ante errores de escaneo
 
-Un error de un `ScannerFunc` significa que **el escaneo en sí falló** (el binario
-no arrancó, salió con código distinto de cero, la salida no se pudo parsear...).
-Eso **nunca** se trata como "no se encontraron hallazgos":
+Un error de un `ScannerFunc` significa que **el escaneo en sí falló**: el
+binario no arrancó, salió con código ≠ 0 **sin** generar reporte, o superó el
+timeout. (Un código ≠ 0 **con** reporte, como gitleaks con hallazgos, no es
+error: ver `isExecutionFailure` en `docs/scanners.md`.) Lo mismo aplica si
+después la salida no se puede parsear. Nada de eso se trata **nunca** como "no
+se encontraron hallazgos":
 
 - Si se tragara el error, un gitleaks roto en CI se vería como "0 secretos" —
   un falso negativo silencioso, justo lo que una herramienta de seguridad no
@@ -105,3 +114,5 @@ trivy reales, y cubre:
 - `cfg.Scanners.Semgrep=true` con el resto deshabilitado → ignorado, sin error.
 - `cfg.Enforce=true` con un hallazgo que supera el umbral → `Result.ShouldFail` y
   `Result.Reason` coinciden con lo que devuelve `policy.ShouldFail` directamente.
+- `cfg.Enforce=true` con hallazgos por debajo del umbral → `ShouldFail=false`
+  (`TestRun_EnforceBelowThresholdDoesNotFail`).

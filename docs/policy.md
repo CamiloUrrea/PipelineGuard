@@ -6,9 +6,10 @@ fallar el build**, a partir de los hallazgos ya normalizados
 (`config.Config`). No hace ninguna E/S y no devuelve `error`: los datos de
 entrada ya vienen validados por `internal/parsers` e `internal/config`.
 
-> Aplicar de verdad esta decisión (código de salida del proceso, comentario en el
-> PR) es trabajo de `cmd/pipelineguard`, un bloque posterior. Aquí solo se
-> calcula el veredicto.
+> Este paquete solo **calcula** el veredicto. Quien lo aplica es
+> `cmd/pipelineguard`, que lo traduce en el exit code `1` (ver `docs/cmd.md`).
+> En la GitHub Action, `gate.sh` lee ese código y hace fallar el job (ver
+> `docs/action-gate.md`). `reason` se imprime en stderr cuando el build falla.
 
 ## `parsers.SeverityRank(severity string) int`
 

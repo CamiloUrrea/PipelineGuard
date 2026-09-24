@@ -5,9 +5,10 @@ plataforma del runner desde **GitHub Releases**, **verifica su checksum SHA-256*
 lo extrae y lo agrega a `$GITHUB_PATH` para que los steps siguientes del workflow
 puedan invocar `pipelineguard` directamente.
 
-Lo consume la composite action (`action.yml`, Bloque 13). Este bloque **solo**
-escribe y prueba el script; no hay una release real todavía, así que el flujo de
-descarga se valida con fixtures locales, no contra GitHub.
+Lo consume la composite action (`action.yml`, step 1). Los tests bats validan
+el flujo con fixtures locales y un `curl` falso, nunca contra GitHub. Además, el
+script ya corrió de verdad en un workflow real, instalando la release publicada
+`v0.1.0` (ver `docs/action.md`).
 
 ## Flujo del script
 
@@ -61,7 +62,9 @@ resolve_version <requested>
      claro. Nunca sigue con un tag adivinado cuya URL sabe que va a fallar.
 - Si `GITHUB_TOKEN` está en el entorno, se envía como `Authorization: Bearer`
   (límite de la API más alto). Sin él, la consulta es anónima (60 req/h por IP).
-  Hoy el step de instalación de `action.yml` **no** le pasa ese token.
+  El step de instalación de `action.yml` **sí** se lo pasa
+  (`GITHUB_TOKEN: ${{ github.token }}` en su `env:`). Solo se usa para esta
+  lectura de releases públicas.
 
 ### Por qué `grep`/`sed` y no `jq`
 
@@ -107,12 +110,19 @@ Estos valores coinciden exactamente con `.Os` / `.Arch` de GoReleaser
 ## Por qué se verifica el checksum SIEMPRE
 
 El binario se descarga por HTTPS desde `github.com`, pero eso solo garantiza el
-transporte. Verificar el SHA-256 contra el `checksums.txt` (que GoReleaser genera
-y firma como parte del release) protege contra:
+transporte. Verificar el SHA-256 contra el `checksums.txt` que GoReleaser
+**genera** como parte del release protege contra:
 
 - Una descarga corrupta o truncada.
-- Un asset alterado en el release (cuenta comprometida, MITM en un proxy interno,
-  cache envenenado).
+- Un archive que no corresponde a lo publicado junto a su `checksums.txt`
+  (proxy interno o cache que sirve un archivo distinto o viejo).
+
+> **Límite:** `checksums.txt` **no está firmado**. `.goreleaser.yaml` no
+> configura ninguna firma: la firma de binarios con cosign es roadmap **v1.4**
+> (ver `ARCHITECTURE.md`). Como el checksum viaja en el mismo release que el
+> binario, quien pueda reemplazar assets del release (p. ej. con una cuenta
+> comprometida) puede reemplazar ambos. El checksum garantiza **integridad**,
+> no **autenticidad**.
 
 Es una herramienta de **seguridad**: ejecutar un binario no verificado con acceso
 al repo y a `GITHUB_TOKEN` sería exactamente el tipo de riesgo de cadena de
@@ -164,6 +174,8 @@ Instalación de las herramientas (si faltan):
     `releases/download/v1/`.
   - Sin release que coincida → falla **antes** de cualquier descarga.
 
-El "camino feliz" completo (descarga real + extracción) **no** se testea aquí:
-requiere una release publicada. Se validará en el test de integración de la Action
-(bloque futuro).
+El "camino feliz" completo (descarga real + extracción) **no** se testea con
+bats: requiere una release publicada y red. Se verificó a mano, corriendo la
+Action real contra la release `v0.1.0`. La resolución de `v1` contra la API
+real (`resolve_version`) solo está cubierta por los tests con `curl` falso; su
+primera ejecución real será con la release `v1.0.0`.

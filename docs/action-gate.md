@@ -22,14 +22,22 @@ output que `run.sh` escribió en el Bloque 13), y decide qué hacer.
 ## Por qué el caso vacío/inválido se trata como fallo de la Action, no de seguridad
 
 `run.sh` (Bloque 13) **siempre** escribe `exit-code=<0|1|2>` en `$GITHUB_OUTPUT`
-salvo que el binario `pipelineguard` esté ausente de PATH — y en ese caso `run.sh`
-ya aborta el step inmediatamente con su propio error, por lo que `gate.sh` nunca
-llega a ejecutarse con ese fallo. Es decir: **si los steps anteriores hicieron su
+cuando el binario existe. Es decir: **si los steps anteriores hicieron su
 trabajo, `EXIT_CODE` siempre es `"0"`, `"1"` o `"2"`.**
 
-Que `gate.sh` reciba algo distinto a esos tres valores (vacío, `"abc"`, o incluso
-un número que no sea `0`/`1`/`2`) solo puede significar que algo se rompió en el
-*wiring* de la Action misma:
+### El caso "binario ausente" **sí** llega a `gate.sh`
+
+Si falta el binario (porque `install.sh` falló, o porque `run.sh` abortó con
+`pipelineguard is not on PATH`), **no** se escribe ningún `exit-code`. Aun así
+`gate.sh` **sí se ejecuta**: el step tiene `if: always()`. Corre con
+`EXIT_CODE` **vacío**, cae en la rama `*)` y sale con `exit 1` y el mensaje de
+*bug de wiring de la Action*. El job termina en rojo, que es lo correcto, pero
+la causa real está en el primer step fallido (*Install* o *Run*), no en el
+wiring. Ver "Si falta el binario: fallo en cascada" en `docs/action.md`.
+
+Fuera de ese caso de binario ausente, que `gate.sh` reciba algo distinto a esos
+tres valores (vacío, `"abc"`, o incluso un número que no sea `0`/`1`/`2`) solo
+puede significar que algo se rompió en el *wiring* de la Action misma:
 
 - alguien cambió el `id` del step `run` y el `env:` de este step quedó apuntando a
   un output que ya no existe;

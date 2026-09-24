@@ -143,13 +143,14 @@ Devuelve `false` (éxito) cuando:
 - Chequeo en tiempo de compilación de que `RunGitleaks` y `RunTrivy` satisfacen
   `orchestrator.ScannerFunc`.
 
-**NO cubierto en este bloque** (y así está anotado en el código):
+**NO cubierto por los tests automáticos** (y así está anotado en el código):
 
 - El **"camino feliz"**: un binario real de gitleaks/trivy ejecutándose y
-  generando un reporte JSON válido. Requiere los binarios instalados en la
-  máquina, se verifica **manualmente**, y todavía **no** corre en CI. Un test de
-  integración end-to-end contra `pipelineguard-demo-vulnerable-app` (ver
-  `ARCHITECTURE.md`, "Estrategia de testing") es trabajo de un bloque posterior.
+  generando un reporte JSON válido. Requiere los binarios instalados, **no**
+  corre en CI y se verificó **a mano**: la validación end-to-end de la Action
+  real contra un PR en `pipelineguard-demo-vulnerable-app` (ver
+  `ARCHITECTURE.md`, "Estrategia de testing"). Automatizar ese test de
+  integración sigue pendiente.
 - El comportamiento exacto de los códigos de salida de cada herramienta con
   hallazgos reales (no verificable sin los binarios; ver aviso de arriba).
 

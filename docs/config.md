@@ -45,14 +45,10 @@ En cualquier caso de error, el `Config` devuelto es el valor cero (`Config{}`).
 scanners:
   gitleaks: true
   trivy: true
-  semgrep: false        # disponible desde v1.1
+  semgrep: false        # reservado para v1.1: hoy se acepta pero se ignora
 
-enforce: false          # si es true, falla el build al superar fail_threshold
+enforce: false           # si es true, el build falla si ALGÚN hallazgo alcanza fail_threshold
 fail_threshold: CRITICAL # CRITICAL | HIGH | MEDIUM
-
-ignore_paths:
-  - "**/vendor/**"
-  - "**/testdata/**"
 
 severity_weights:
   CRITICAL: 10
@@ -66,15 +62,20 @@ severity_weights:
 |--------------------|------------------|----------------------------------------------------------------------------|
 | `scanners.gitleaks`| `bool`           | Ejecutar gitleaks (detección de secretos).                                  |
 | `scanners.trivy`   | `bool`           | Ejecutar trivy (vulnerabilidades de dependencias).                          |
-| `scanners.semgrep` | `bool`           | Ejecutar semgrep (SAST). Reservado para v1.1.                               |
-| `enforce`          | `bool`           | Si es `true`, el build puede fallar al superar `fail_threshold`. La decisión real es de un bloque futuro (`cmd/`); aquí solo se guarda el valor. |
-| `fail_threshold`   | `string`         | Umbral de severidad para el enforcement: `CRITICAL` \| `HIGH` \| `MEDIUM`.   |
-| `ignore_paths`     | `[]string`       | Globs de rutas a ignorar. Se guardan **tal cual**; el matching real contra archivos es de un bloque futuro. |
+| `scanners.semgrep` | `bool`           | Reservado para v1.1 (SAST). Se **acepta** en el YAML, pero `internal/orchestrator` lo **ignora**: con `true` no corre semgrep ni da error. |
+| `enforce`          | `bool`           | Si es `true`, el build falla cuando **algún** hallazgo tiene severidad **igual o mayor** que `fail_threshold`. Implementado en `policy.ShouldFail` (ver `docs/policy.md`); `cmd/pipelineguard` lo traduce en el exit code `1` (ver `docs/cmd.md`). Con `false` (default) el modo es informativo y nunca falla. |
+| `fail_threshold`   | `string`         | Umbral de **severidad** para el enforcement: `CRITICAL` \| `HIGH` \| `MEDIUM`. Se compara hallazgo por hallazgo; **no** tiene relación con el risk score total. |
 | `severity_weights` | `map[string]int` | Peso de cada severidad en el risk score. Sobreescribe los pesos por defecto llave por llave. |
 
-> Fuera del alcance de este bloque: decidir si el build falla según
-> `fail_threshold`, y aplicar `ignore_paths` contra el árbol de archivos. Ambos
-> se limitan a almacenarse en el `Config`.
+### `ignore_paths`: aceptado, pero **todavía no se aplica** (reservado para v1.1)
+
+`Config` tiene el campo `IgnorePaths` (`ignore_paths` en el YAML, `[]string`), y
+`Load` lo parsea y lo guarda tal cual. **Ningún código lo usa**: no se filtran
+hallazgos ni rutas, y no se pasa a gitleaks ni a trivy. Escribir
+`ignore_paths` en `.pipelineguard.yml` **no tiene ningún efecto** en v1.0: los
+hallazgos en esas rutas siguen apareciendo en el reporte, en el SARIF y en la
+decisión de enforcement. Por eso no aparece en el ejemplo de arriba. Queda
+reservado para v1.1.
 
 ## Comportamiento de merge con los defaults
 

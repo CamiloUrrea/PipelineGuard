@@ -5,16 +5,22 @@ un workflow de integración continua (`ci.yml`) en cada PR/push, y un workflow d
 release (`release.yml`) que corre GoReleaser (ver `docs/goreleaser.md`) cuando se
 empuja un tag `v*`.
 
-> ⚠️ **Sin ejecución real verificada.** Este bloque **no** empuja ningún commit,
-> PR ni tag — está prohibido correr comandos de git reales en esta sesión (ver
-> `docs/action.md` y bloques anteriores para la misma restricción). Lo único
-> verificado localmente es que **ambos archivos son YAML sintácticamente válido**
-> (parseados con `gopkg.in/yaml.v3`, el mismo método usado para `.goreleaser.yaml`
-> y `action.yml` en bloques anteriores). **No hay forma de confirmar que los
-> workflows realmente corren y pasan en GitHub Actions sin un push/PR real** —
-> eso solo se puede probar empujando este branch (o abriendo un PR) contra el
-> repo real, y el workflow de release solo se puede probar empujando un tag `v*`
-> de verdad. Ninguna de esas dos cosas se hizo aquí.
+> **Estado de verificación.** Localmente, ambos workflows se validan como YAML
+> sintáctico (`gopkg.in/yaml.v3`, el mismo método que para `.goreleaser.yaml` y
+> `action.yml`). Además, **sí hubo corridas reales en GitHub Actions**, que
+> dejaron hallazgos concretos:
+>
+> - **`ci.yml`**: la primera corrida real falló en el job `bash` con `EACCES`
+>   al instalar bats sin `sudo` (ver "Job `bash`" abajo). El mismo commit que lo
+>   corrigió (`fix(ci): handle stdout write errors and add sudo to bats
+>   install`) también atendió el manejo del error de escritura a stdout en
+>   `cmd/pipelineguard`, el que ahora sale con código `2` (ver `docs/cmd.md`).
+> - **`release.yml`**: el tag `v0.1.0` se publicó como GitHub Release, y la
+>   composite action instaló sus assets en un workflow real (ver
+>   `docs/action.md`).
+>
+> Lo que **todavía no** corrió de verdad está en "Qué falta verificar en una
+> corrida real", al final.
 
 ## `ci.yml`
 
@@ -42,16 +48,16 @@ Tres jobs **independientes**, corren en paralelo (ninguno depende de otro vía
 1. `actions/checkout@v7`.
 2. `actions/setup-go@v7` con `go-version-file: go.mod`.
 3. `golangci/golangci-lint-action@v9` con `version: v2.13` (versión de la
-   herramienta `golangci-lint` en sí, no de la action). **Sin `.golangci.yml`
-   custom en este bloque** — corre con la configuración por defecto de
-   golangci-lint.
+   herramienta `golangci-lint` en sí, no de la action). **No hay `.golangci.yml`
+   en el repo**: corre con la configuración por defecto de golangci-lint.
 
 ### Job `bash`
 
 1. `actions/checkout@v7`.
 2. Instala `shellcheck` (`sudo apt-get install -y shellcheck`) y `bats-core`
    (`sudo npm install -g bats`) en el runner — `ubuntu-latest` no los trae
-   listos para el uso que necesitamos (versión pineada de bats vía npm).
+   listos. **Ninguna de las dos versiones está pineada**: `apt` instala la de la
+   distro y `npm install -g bats` instala la última publicada.
    El `npm install -g` necesita `sudo` igual que el `apt-get`: sin él, la
    primera corrida real de este workflow falló con `EACCES` porque el
    usuario del runner no tiene permiso de escritura en el prefix global de
@@ -140,23 +146,19 @@ a la vez en runners separados — el feedback de un PR llega en el tiempo del jo
 `shellcheck`/`bats` de `go vet`/`go test`: son dominios de falla distintos (Go
 vs. bash) y no hay razón para serializarlos.
 
-## Qué falta para probar esto de verdad
+## Qué falta verificar en una corrida real
 
-- **`ci.yml`**: abrir un PR real (o hacer push a `main`) contra el repo en
-  GitHub. Eso confirmaría que los tres jobs efectivamente arrancan, que
-  `go-version-file: go.mod` resuelve la versión correcta, que
-  `golangci-lint-action@v9` corre sin config custom sin quejarse, y que la
-  instalación de `shellcheck`/`bats-core` vía `apt`/`npm` funciona en el runner
-  real (aquí solo se validó que el YAML es válido, no que los comandos de
-  instalación tengan éxito en `ubuntu-latest`).
-- **`release.yml`**: empujar un tag `v*` real. Eso confirmaría que
-  `goreleaser-action@v7` con `version: "~> v2"` resuelve e instala GoReleaser,
-  que `--clean` + los permisos `contents: write` alcanzan para publicar el
-  Release, y que el changelog agrupado (`docs/goreleaser.md`) sale como se
-  espera. GoReleaser en sí tampoco está instalado en esta máquina (ver
-  `docs/goreleaser.md`), así que ni siquiera se pudo simular localmente con
-  `--snapshot`.
+`ci.yml` y el step de GoReleaser de `release.yml` ya corrieron en GitHub (ver el
+estado al inicio). Lo que se agregó **después** de la última corrida real, y se
+ejecutará por primera vez con el tag `v1.0.0`:
 
-Ninguna de las dos cosas se hizo en este bloque — está fuera de su alcance y
-prohibido por las reglas del proyecto (no se dispara ni simula una ejecución
-real).
+- **Step `Update floating major version tag`**: el `git tag -fa` + `git push
+  --force` de `v1` con el `GITHUB_TOKEN`, y la guardia de pre-release. Localmente
+  solo se validó el YAML y se ejecutó el `run:` extraído con un `git` falso (ver
+  el punto 4 de `release.yml`).
+- **`install.sh` resolviendo `v1`** contra la API real de Releases
+  (`resolve_version`), cubierto hasta ahora solo con un `curl` falso en bats.
+
+GoReleaser no está instalado en la máquina de desarrollo (ver
+`docs/goreleaser.md`), así que `release.yml` no se puede simular localmente con
+`--snapshot`: la única prueba es empujar un tag real.
