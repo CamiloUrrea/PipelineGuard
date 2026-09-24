@@ -65,7 +65,13 @@ array o un `[]` vacío. Cubierto por los tests bats.
 4. `export GH_REPO="${GH_REPO:-${GITHUB_REPOSITORY:-}}"` — `gh` resuelve
    `{owner}/{repo}` desde `GH_REPO`; en Actions `GITHUB_REPOSITORY` siempre está,
    así que se usa como fallback.
-5. Construye el body en un archivo temporal con `build_comment_body`.
+5. Construye el body en un archivo temporal (`mktemp`) con `build_comment_body`.
+   Justo después de crearlo registra `trap 'rm -f "$body_file"' EXIT`, así que el
+   archivo se borra **como sea que termine el script**, incluso si una llamada a
+   `gh api` falla y `set -e` corta `main()` a la mitad. (Antes el `rm -f` estaba
+   al final de `main()` y un fallo de `gh` dejaba el temporal huérfano.)
+   `body_file` es una variable **global** a propósito, no `local`: el trap corre
+   cuando `main()` ya terminó, y en ese momento una `local` ya no existiría.
 6. Lista comentarios → `find_comment_id` → PATCH o POST con `-F body=@<tmp>`.
 
 ### Bug real: `-f` vs `-F` en `gh api`
@@ -126,8 +132,10 @@ bats action/scripts/comment_test.bats
 ```
 
 `comment_test.bats` pone un `gh` **falso** primero en PATH (registra sus
-argumentos en un log y devuelve JSON de comentarios fijo o una respuesta de
-escritura simulada según se le llame) y usa `jq` real. Cubre:
+argumentos en un log, anota si el archivo `body=@<tmp>` existía mientras corría,
+y devuelve JSON de comentarios fijo o una respuesta de escritura simulada según
+se le llame; con `GH_FAKE_FAIL_WRITES=1` falla en PATCH/POST) y usa `jq` real.
+Cubre:
 
 - `find_comment_id`: match → id correcto; sin match → vacío; `[]` → vacío sin
   error; arrays concatenados de `--paginate`; lectura desde stdin con `-`.
@@ -139,3 +147,14 @@ escritura simulada según se le llame) y usa `jq` real. Cubre:
 - Regresión del bug `-f` vs `-F`: tanto el flujo de PATCH como el de POST
   verifican que la llamada a `gh api` use `-F body=@<archivo>` y **no**
   `-f body=@<archivo>`.
+- Limpieza del temporal (el `trap`): tras una corrida exitosa, y tras un `gh`
+  que falla en POST y en PATCH (el script sale con error), el archivo
+  `body=@<tmp>` existió durante la llamada y **ya no existe** al terminar.
+
+> **Nota sobre `set -e` en los tests:** `setup()` sourcea `comment.sh`, que
+> activa `set -euo pipefail`. Antes el `setup()` hacía `set +e` después, y eso
+> desactivaba en silencio todas las aserciones que no fueran la **última línea**
+> de cada test (bats necesita `-e` para que cada línea pueda fallar). Ahora solo
+> se hace `set +u`. Además, cada `! grep ...` intermedio se escribe
+> `! grep ... || false`, porque bash nunca deja que un comando negado con `!`
+> dispare `set -e`.

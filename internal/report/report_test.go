@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"pipelineguard/internal/parsers"
 )
@@ -81,4 +82,58 @@ func TestGenerateMarkdown_EmptyCountsNoSummaryTable(t *testing.T) {
 	assert.NotContains(t, out, "| Severidad | Hallazgos |")
 	// Detail table is still present.
 	assert.Contains(t, out, "| Severidad | Herramienta | Archivo:Línea | Regla | Mensaje |")
+}
+
+func TestEscapeTableCell(t *testing.T) {
+	assert.Equal(t, "no pipes here", escapeTableCell("no pipes here"))
+	assert.Equal(t, `path A\|path B`, escapeTableCell("path A|path B"))
+	assert.Equal(t, `\|a\|\|b\|`, escapeTableCell("|a||b|"))
+	assert.Equal(t, "", escapeTableCell(""))
+}
+
+// countUnescapedPipes counts the "|" characters in line that are real column
+// separators, i.e. not preceded by a backslash.
+func countUnescapedPipes(line string) int {
+	n := 0
+	for i, r := range line {
+		if r == '|' && (i == 0 || line[i-1] != '\\') {
+			n++
+		}
+	}
+	return n
+}
+
+func TestGenerateMarkdown_PipeInFieldsIsEscaped(t *testing.T) {
+	findings := []parsers.Finding{
+		{
+			Tool:     "trivy",
+			Severity: "HIGH",
+			File:     "dir|with|pipes/go.sum",
+			Line:     0,
+			Rule:     "CVE|2024",
+			Message:  "path A|path B",
+		},
+	}
+	out := GenerateMarkdown(findings, 5, map[string]int{"HIGH": 1})
+
+	assert.Contains(t, out, `path A\|path B`)
+	assert.Contains(t, out, `dir\|with\|pipes/go.sum:0`)
+	assert.Contains(t, out, `CVE\|2024`)
+
+	var header, row string
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "| Severidad | Herramienta"):
+			header = line
+		case strings.HasPrefix(line, "| HIGH | trivy"):
+			row = line
+		}
+	}
+	require.NotEmpty(t, header, "detail table header not found")
+	require.NotEmpty(t, row, "detail table row not found")
+
+	// 5 columns -> 6 separators, and the finding row must match the header.
+	assert.Equal(t, 6, countUnescapedPipes(header))
+	assert.Equal(t, countUnescapedPipes(header), countUnescapedPipes(row),
+		"a '|' inside a field must not add columns to the row: %q", row)
 }

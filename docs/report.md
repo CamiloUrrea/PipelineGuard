@@ -47,6 +47,20 @@ después de todas las conocidas.
 | `Regla`         | `Finding.Rule`                |
 | `Mensaje`       | `Finding.Message`             |
 
+### Escape de `|` en las celdas
+
+Un `|` literal dentro de un campo (p. ej. un `Message` como `path A|path B`)
+se leería como separador de columna y rompería la fila. Por eso **todas** las
+celdas de texto de la tabla de detalle (`Severidad`, `Herramienta`, `File`,
+`Regla`, `Mensaje`) pasan por:
+
+```go
+func escapeTableCell(s string) string // reemplaza "|" por "\|"
+```
+
+`path A|path B` se renderiza como `path A\|path B`, y la fila conserva sus 5
+columnas.
+
 ## Ejemplo de salida
 
 Con dos hallazgos (uno de gitleaks, uno de trivy) y `score = 12`:
@@ -88,3 +102,7 @@ Los tests (`report_test.go`) usan `testing` + `testify/assert` y cubren:
   (posiciones relativas, no comparación de string completo).
 - Misma severidad → filas ordenadas por nombre de archivo.
 - `countsBySeverity` vacío → no se genera la tabla resumen.
+- `escapeTableCell` como función pura (sin `|`, uno, varios, string vacío).
+- Un `Finding` con `|` en `Message`, `File` y `Rule` → aparecen escapados como
+  `\|`, y la fila tiene el mismo número de `|` sin escapar (separadores reales)
+  que el encabezado: 6, es decir, 5 columnas.

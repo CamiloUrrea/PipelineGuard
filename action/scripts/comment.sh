@@ -69,8 +69,12 @@ main() {
 	# GITHUB_REPOSITORY that GitHub Actions always sets.
 	export GH_REPO="${GH_REPO:-${GITHUB_REPOSITORY:-}}"
 
-	local body_file
+	# body_file is deliberately NOT local: the EXIT trap runs after main() has
+	# returned (or after set -e aborted it), when a local would be out of scope.
 	body_file="$(mktemp)"
+	# Remove the temp file however the script ends — including a failing
+	# `gh api` call that makes set -e abort before main() finishes.
+	trap 'rm -f "$body_file"' EXIT
 	build_comment_body "$MARKER" "$report_path" >"$body_file"
 
 	local comments_json existing_id
@@ -86,8 +90,6 @@ main() {
 		gh api "repos/{owner}/{repo}/issues/${PR_NUMBER}/comments" \
 			-X POST -F "body=@${body_file}"
 	fi
-
-	rm -f "$body_file"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

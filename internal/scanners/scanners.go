@@ -10,11 +10,13 @@
 package scanners
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Binary names are package variables so tests can point them at a name that is
@@ -23,6 +25,16 @@ var (
 	gitleaksBinary = "gitleaks"
 	trivyBinary    = "trivy"
 )
+
+// scanTimeout bounds how long a single scanner run may take; a hung scanner is
+// killed instead of hanging pipelineguard (and the CI job) indefinitely. It is
+// a package variable, like the binary names above, so tests can shrink it.
+var scanTimeout = 5 * time.Minute
+
+// scanWaitDelay is how long cmd.Wait keeps waiting for the scanner's I/O after
+// the process was killed on timeout. Without it, a child process that inherited
+// stderr could keep the pipe open and defeat the timeout.
+const scanWaitDelay = 5 * time.Second
 
 // RunGitleaks runs gitleaks against the current directory and returns the raw
 // JSON report bytes. It satisfies orchestrator.ScannerFunc.
@@ -91,10 +103,22 @@ func runScanner(name, binary, installURL string, buildArgs func(reportPath strin
 	_ = reportFile.Close()
 	defer func() { _ = os.Remove(reportPath) }()
 
+	ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
+	defer cancel()
+
 	var stderr strings.Builder
-	cmd := exec.Command(binary, buildArgs(reportPath)...)
+	cmd := exec.CommandContext(ctx, binary, buildArgs(reportPath)...)
 	cmd.Stderr = &stderr
+	cmd.WaitDelay = scanWaitDelay
 	runErr := cmd.Run()
+
+	// When the deadline fires, CommandContext kills the process and Run returns
+	// a bare "signal: killed" / exit error. Replace it with an explicit timeout
+	// error (wrapping context.DeadlineExceeded) so the cause is unambiguous.
+	if runErr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		runErr = fmt.Errorf("timeout: %s did not finish within %s: %w",
+			name, scanTimeout, context.DeadlineExceeded)
+	}
 
 	reportBytes, readErr := os.ReadFile(reportPath)
 	hasContent := readErr == nil && len(strings.TrimSpace(string(reportBytes))) > 0
@@ -128,13 +152,19 @@ func runScanner(name, binary, installURL string, buildArgs func(reportPath strin
 //     the process never started), or
 //   - runErr is an *exec.ExitError (ran, exited non-zero) AND no report content
 //     was produced, or
-//   - runErr is any other non-nil error (command setup, I/O, timeout).
+//   - runErr wraps context.DeadlineExceeded (the scan hit scanTimeout and was
+//     killed) — even if a partial report was written, it cannot be trusted, or
+//   - runErr is any other non-nil error (command setup, I/O).
 //
 // Returns false when runErr is nil, or when the process exited non-zero but a
 // non-empty report file exists.
 func isExecutionFailure(runErr error, reportFileHasContent bool) bool {
 	if runErr == nil {
 		return false
+	}
+
+	if errors.Is(runErr, context.DeadlineExceeded) {
+		return true
 	}
 
 	var execErr *exec.Error

@@ -27,6 +27,13 @@ func severityRank(severity string) int {
 	return len(severityDisplayOrder)
 }
 
+// escapeTableCell makes s safe to place inside a Markdown table cell: a literal
+// "|" would otherwise be read as a column separator and break the row, so it is
+// escaped as "\|".
+func escapeTableCell(s string) string {
+	return strings.ReplaceAll(s, "|", `\|`)
+}
+
 // GenerateMarkdown builds the PR-comment Markdown report.
 //
 //   - Always: a title line with the total risk score.
@@ -34,7 +41,8 @@ func severityRank(severity string) int {
 //     severityDisplayOrder, listing only the severities present.
 //   - If findings is empty: a short "no findings" line (no empty table).
 //   - Otherwise: a detail table sorted by severity (severityDisplayOrder) and,
-//     within a severity, by file name.
+//     within a severity, by file name. Every text cell goes through
+//     escapeTableCell so a "|" inside a finding cannot break the table.
 func GenerateMarkdown(findings []parsers.Finding, score int, countsBySeverity map[string]int) string {
 	var b strings.Builder
 
@@ -69,7 +77,8 @@ func GenerateMarkdown(findings []parsers.Finding, score int, countsBySeverity ma
 	b.WriteString("|---|---|---|---|---|\n")
 	for _, f := range sorted {
 		fmt.Fprintf(&b, "| %s | %s | %s:%d | %s | %s |\n",
-			f.Severity, f.Tool, f.File, f.Line, f.Rule, f.Message)
+			escapeTableCell(f.Severity), escapeTableCell(f.Tool), escapeTableCell(f.File),
+			f.Line, escapeTableCell(f.Rule), escapeTableCell(f.Message))
 	}
 
 	return b.String()

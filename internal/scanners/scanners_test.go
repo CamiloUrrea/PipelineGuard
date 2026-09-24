@@ -1,15 +1,33 @@
 package scanners
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"pipelineguard/internal/orchestrator"
 )
+
+// fakeScannerEnv, when set, turns the test binary itself into a fake scanner
+// that just sleeps (see TestMain). The timeout tests point gitleaksBinary /
+// trivyBinary at os.Executable() and set this variable, so the "hung scanner"
+// is a real child process on every OS — no shell, no `sleep` binary needed.
+const fakeScannerEnv = "PIPELINEGUARD_FAKE_SCANNER_SLEEP"
+
+func TestMain(m *testing.M) {
+	if d, err := time.ParseDuration(os.Getenv(fakeScannerEnv)); err == nil {
+		time.Sleep(d)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // Compile-time check that both real scanners satisfy orchestrator.ScannerFunc.
 var (
@@ -78,4 +96,63 @@ func TestRunTrivy_BinaryNotInPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "trivy")
 	assert.Contains(t, err.Error(), "PATH")
 	assert.Contains(t, err.Error(), "github.com/aquasecurity/trivy")
+}
+
+func TestIsExecutionFailure_Timeout(t *testing.T) {
+	timeoutErr := fmt.Errorf("timeout: gitleaks did not finish within 10ms: %w", context.DeadlineExceeded)
+
+	// A killed-on-timeout scan is always a failure, even if a partial report
+	// was written before the kill.
+	assert.True(t, isExecutionFailure(timeoutErr, true))
+	assert.True(t, isExecutionFailure(timeoutErr, false))
+}
+
+// useHangingScanner points *binary at the test executable, which (via TestMain
+// and fakeScannerEnv) sleeps for sleepFor, and shrinks scanTimeout to timeout.
+func useHangingScanner(t *testing.T, binary *string, sleepFor, timeout time.Duration) {
+	t.Helper()
+
+	self, err := os.Executable()
+	require.NoError(t, err)
+
+	restoreBinary, restoreTimeout := *binary, scanTimeout
+	*binary = self
+	scanTimeout = timeout
+	t.Cleanup(func() {
+		*binary = restoreBinary
+		scanTimeout = restoreTimeout
+	})
+	t.Setenv(fakeScannerEnv, sleepFor.String())
+}
+
+func TestRunGitleaks_Timeout(t *testing.T) {
+	const sleepFor = 30 * time.Second
+	useHangingScanner(t, &gitleaksBinary, sleepFor, 10*time.Millisecond)
+
+	start := time.Now()
+	out, err := RunGitleaks()
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "gitleaks")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, elapsed, sleepFor/2, "RunGitleaks must return on timeout, not wait for the scanner")
+}
+
+func TestRunTrivy_Timeout(t *testing.T) {
+	const sleepFor = 30 * time.Second
+	useHangingScanner(t, &trivyBinary, sleepFor, 10*time.Millisecond)
+
+	start := time.Now()
+	out, err := RunTrivy()
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "trivy")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, elapsed, sleepFor/2, "RunTrivy must return on timeout, not wait for the scanner")
 }
