@@ -16,6 +16,9 @@ set -euo pipefail
 
 REPO="CamiloUrrea/PipelineGuard"
 BINARY_NAME="pipelineguard"
+# per_page=100: the API's default page is 30 releases, which a busy major could
+# outgrow; 100 is the maximum per request.
+RELEASES_API_URL="https://api.github.com/repos/${REPO}/releases?per_page=100"
 
 # detect_os prints the GoReleaser ".Os" value for the current platform.
 detect_os() {
@@ -113,6 +116,56 @@ download() {
 	curl -fsSL "$url" -o "$dest"
 }
 
+# fetch_releases_json prints the GitHub Releases API response for REPO. When
+# GITHUB_TOKEN is set it is sent as a bearer token (higher API rate limit);
+# without it the request is anonymous.
+fetch_releases_json() {
+	local -a headers=(-H "Accept: application/vnd.github+json")
+	if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+		headers+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+	fi
+	curl -fsSL "${headers[@]}" "$RELEASES_API_URL"
+}
+
+# resolve_version turns the requested version into a real release tag.
+#   resolve_version <requested>
+#   - A full version (e.g. v0.1.0) is printed unchanged; the API is NOT called.
+#   - A bare major (^v[0-9]+$, e.g. v1) is not a release of its own: the highest
+#     clean release tag <major>.X.Y from the Releases API is printed instead
+#     (sort -V). Pre-releases (v1.1.0-rc.1) never match. If nothing matches, or
+#     the API call fails, it errors out — never a guessed tag whose download URL
+#     is known to 404.
+# The tag_name values are pulled out with grep/sed on purpose: install.sh does
+# not depend on jq (only comment.sh does), and must keep it that way.
+resolve_version() {
+	local requested="$1"
+	if [[ ! "$requested" =~ ^v[0-9]+$ ]]; then
+		echo "$requested"
+		return 0
+	fi
+
+	local releases_json
+	if ! releases_json="$(fetch_releases_json)"; then
+		echo "install.sh: could not query ${RELEASES_API_URL} to resolve '${requested}' to a release" >&2
+		return 1
+	fi
+
+	local resolved
+	resolved="$(printf '%s\n' "$releases_json" |
+		grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' |
+		sed 's/.*"\([^"]*\)"$/\1/' |
+		grep -E "^${requested}\.[0-9]+\.[0-9]+$" |
+		sort -V | tail -n 1)" || true
+
+	if [[ -z "$resolved" ]]; then
+		echo "install.sh: no release matching '${requested}.X.Y' found in ${REPO} — pass an exact version (e.g. ${requested}.0.0) or check the repo's Releases" >&2
+		return 1
+	fi
+
+	echo "install.sh: resolved '${requested}' to ${resolved}" >&2
+	echo "$resolved"
+}
+
 # extract_binary pulls the archive contents into dest_dir. tar.gz for unix,
 # zip for windows.
 #   extract_binary <archive> <os> <dest_dir>
@@ -129,19 +182,23 @@ extract_binary() {
 # install_pipelineguard runs the full flow: resolve the platform, download the
 # archive and checksums.txt, verify the checksum, extract the binary, and add
 # its directory to $GITHUB_PATH so later workflow steps can call `pipelineguard`.
-#   install_pipelineguard <version>   (version keeps the leading 'v', e.g. v1.2.3)
+#   install_pipelineguard <version>   (keeps the leading 'v': v1.2.3, or a bare
+#                                      major like v1, see resolve_version)
 install_pipelineguard() {
 	local version="${1:-}"
 	if [[ -z "$version" ]]; then
-		echo "install.sh: usage: install.sh <version>  (e.g. install.sh v1.2.3)" >&2
+		echo "install.sh: usage: install.sh <version>  (e.g. install.sh v1.2.3, or a bare major: install.sh v1)" >&2
 		return 1
 	fi
 
 	require_cmd curl
 
-	# The release tag keeps the leading 'v'; the asset filename drops it.
-	local tag="$version"
-	local file_version="${version#v}"
+	# A bare major like "v1" is resolved to a real release tag (e.g. v1.2.3)
+	# before anything is built from it. The release tag keeps the leading 'v';
+	# the asset filename drops it.
+	local tag
+	tag="$(resolve_version "$version")" || return 1
+	local file_version="${tag#v}"
 
 	local os arch asset
 	os="$(detect_os)"

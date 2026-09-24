@@ -40,6 +40,7 @@ runs:
       shell: bash
       env:
         PIPELINEGUARD_VERSION: ${{ inputs.version }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh" "${PIPELINEGUARD_VERSION}"
 
     - name: Run pipelineguard
@@ -54,7 +55,7 @@ runs:
     # action, not interpolated into a bash `run:` — no shell-injection surface.
     - name: Upload SARIF results
       if: always()
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ inputs.sarif-output }}
 

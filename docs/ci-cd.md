@@ -81,6 +81,30 @@ Un único job (`goreleaser`):
 3. `goreleaser/goreleaser-action@v7` con `version: "~> v2"` (instala la última
    versión 2.x de la herramienta GoReleaser, coherente con `version: 2` en
    `.goreleaser.yaml`) y `args: release --clean`.
+4. **`Update floating major version tag`**: solo corre si GoReleaser tuvo éxito
+   (comportamiento por defecto de los steps). Deriva el major con
+   `MAJOR="${GITHUB_REF_NAME%%.*}"` (`v1.0.0` → `v1`, `v0.1.0` → `v0`), crea el tag
+   anotado con `git tag -fa "$MAJOR"` sobre el commit del release y lo empuja con
+   `git push origin "$MAJOR" --force`. Así `uses: CamiloUrrea/PipelineGuard/action@v1`
+   siempre apunta al último release de la serie 1.x, igual que `actions/checkout`
+   mantiene su `v4`.
+   - Permisos: usa el mismo `contents: write` del job. El push se autentica con el
+     `GITHUB_TOKEN` que `actions/checkout` deja configurado (`persist-credentials`
+     por defecto).
+   - `fetch-depth: 0` en el checkout garantiza que el historial y los tags estén
+     completos en el runner.
+   - Un push hecho con `GITHUB_TOKEN` **no** dispara nuevos workflows, así que
+     mover `v1` no vuelve a lanzar `release.yml` aunque `v1` matchee `v*`.
+   - **Guardia de pre-release:** solo un tag **limpio** `^v[0-9]+\.[0-9]+\.[0-9]+$`
+     mueve el tag mayor. Un tag con sufijo (`v1.1.0-rc.1`: por convención semver,
+     el `-` marca una pre-release; también `v1.2.3+build.5`) imprime
+     `Skipping floating tag update: …` y sale con `0`, **sin** ejecutar ningún
+     comando de git. Sin esta guardia, publicar una RC apuntaría a todos los
+     usuarios de `@v1` a una versión sin terminar. El GitHub Release de ese tag
+     lo sigue creando GoReleaser en el step anterior. Verificado localmente
+     extrayendo el `run:` del YAML y ejecutándolo con un `git` falso:
+     `v1.1.0-rc.1`, `v2.0.0-beta` y `v1.2.3+build.5` → se omite;
+     `v1.2.3` / `v1.0.0` / `v0.1.0` → `tag -fa v1|v0` + `push --force`.
 
 ### Permisos
 

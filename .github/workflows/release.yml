@@ -29,3 +29,28 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Move the floating major tag (e.g. v1) to the release just published, so
+      # users can pin `uses: CamiloUrrea/PipelineGuard/action@v1`. Runs only if
+      # GoReleaser succeeded (default step behavior). The push authenticates with
+      # the GITHUB_TOKEN that actions/checkout persisted; pushes made with that
+      # token do not trigger new workflow runs, so this cannot re-trigger itself.
+      #
+      # Pre-release guard: only a clean vX.Y.Z tag may move the major tag. A tag
+      # with a suffix (v1.1.0-rc.1 — by semver convention, "-" marks a
+      # pre-release) would otherwise point every `@v1` user at an unfinished
+      # release. Such tags still get their GitHub Release from GoReleaser above;
+      # this step just leaves the floating tag where it is.
+      - name: Update floating major version tag
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"              # ej. v1.0.0
+          MAJOR="${TAG%%.*}"                    # ej. v1
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping floating tag update: '$TAG' is not a clean vX.Y.Z release (e.g. a '-' suffix marks a semver pre-release), so '$MAJOR' is left unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -fa "$MAJOR" -m "Update floating tag $MAJOR -> $TAG"
+          git push origin "$MAJOR" --force

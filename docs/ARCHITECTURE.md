@@ -145,8 +145,8 @@ severity_weights:
 ## 11. Release y versionado
 
 - SemVer estricto (`v1.0.0`, `v1.2.3`).
-- Tag flotante `v1` apuntando siempre al último release de la serie 1.x, para que los usuarios puedan fijar `uses: <owner>/pipelineguard@v1`.
-- Flujo completo automatizado con GoReleaser: build matrix multiplataforma → checksums → changelog (Conventional Commits) → publicación del GitHub Release → actualización del tag mayor.
+- Tag flotante `v1` apuntando siempre al último release de la serie 1.x, para que los usuarios puedan fijar `uses: CamiloUrrea/PipelineGuard/action@v1`.
+- Flujo completo automatizado en `.github/workflows/release.yml`: GoReleaser (build matrix multiplataforma → checksums → changelog → publicación del GitHub Release) y, solo si GoReleaser tuvo éxito, el step **`Update floating major version tag`**, que deriva el major del tag (`v1.0.0` → `v1`) y hace `git tag -fa` + `git push --force` de ese tag mayor sobre el commit recién publicado (ver `docs/ci-cd.md`). El tag mayor lo mueve ese step, no GoReleaser.
 - Roadmap fase 2: firma de binarios con cosign para trazabilidad de cadena de suministro.
 
 ## 12. Roadmap resumido
