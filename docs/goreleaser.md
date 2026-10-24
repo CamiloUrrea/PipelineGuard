@@ -4,17 +4,17 @@
 plataformas soportadas, genera checksums y un changelog, y publica el GitHub
 Release. Este archivo define todo ese flujo.
 
-> ⚠️ **Estado de validación:** GoReleaser **no está instalado** en la máquina
-> de desarrollo, así que localmente no se corrió `goreleaser check` ni
-> `goreleaser release --snapshot --clean`. Localmente solo se verifica que el
-> archivo es **YAML sintácticamente válido** (`gopkg.in/yaml.v3`). La config
+> ⚠️ **Estado de validación:** desde el Bloque 22, **`goreleaser check` pasa**
+> localmente con GoReleaser **v2.18.3** (`1 configuration file(s) validated`),
+> además de la validación como YAML (`gopkg.in/yaml.v3`). Lo que **no** se corrió
+> localmente es `goreleaser release` (ni `--snapshot --clean`). La config
 > **sí** corre de verdad en CI: `.github/workflows/release.yml` ejecuta
 > GoReleaser en cada tag `v*` y publica el GitHub Release (ver `docs/ci-cd.md`).
 > La release `v0.1.0` existe, y la Action instaló sus assets en un workflow real
 > (ver `docs/action.md`), así que la convención de nombres de abajo ya se
 > comprobó en la práctica.
 
-## Cómo probarlo localmente (cuando GoReleaser esté disponible)
+## Cómo probarlo localmente
 
 ```sh
 goreleaser check                          # valida el archivo contra el schema
@@ -88,9 +88,14 @@ implica).
 `github: { owner: CamiloUrrea, name: PipelineGuard }` — el repo donde se publica
 el GitHub Release. La publicación la hace `.github/workflows/release.yml` al
 empujar un tag `v*`. Localmente solo tiene sentido el modo `--snapshot`, que no
-publica nada. No hay `prerelease: auto`: un tag como `v1.1.0-rc.1` se publica
-como release normal en GitHub. (El tag flotante y `install.sh` igual lo ignoran,
-porque filtran por formato `vX.Y.Z`.)
+publica nada.
+
+`prerelease: auto` (Bloque 22): GoReleaser marca el GitHub Release como
+**pre-release** cuando el tag tiene sufijo de pre-release semver
+(`v1.1.0-rc.1`, `v2.0.0-beta`), así que una RC ya no aparece como "Latest" en
+GitHub. Un tag limpio `vX.Y.Z` se publica como release normal. (El tag flotante
+y `install.sh` ya ignoraban las RC, porque filtran por formato `vX.Y.Z`.)
+Validado con `goreleaser check`; todavía no se empujó un tag RC real.
 
 ## Convención de nombres de los artefactos (CRÍTICO para `install.sh`)
 
@@ -133,7 +138,7 @@ snapshot.
 
 ## Contenido esperado de `dist/` tras `goreleaser release --snapshot --clean`
 
-> No verificado (GoReleaser no instalado). Esto es lo que la config y la
+> No verificado (no se corrió `--snapshot`). Esto es lo que la config y la
 > documentación de GoReleaser implican:
 
 - Los 6 archives (`pipelineguard_<version>_<os>_<arch>.{tar.gz,zip}`).

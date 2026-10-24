@@ -1,9 +1,9 @@
 # GoReleaser configuration for PipelineGuard.
 # Schema reference: https://goreleaser.com/customization/
 #
-# NOT validated with `goreleaser check` on this machine — GoReleaser is not
-# installed here (see docs/goreleaser.md). Written against the v2 schema
-# (formats/format_overrides as lists, introduced in GoReleaser v2.4).
+# Validated with `goreleaser check` (GoReleaser v2.18.3); see
+# docs/goreleaser.md. Written against the v2 schema (formats/format_overrides
+# as lists, introduced in GoReleaser v2.4).
 #
 # Local test (no git tag, no publishing):
 #   goreleaser release --snapshot --clean
@@ -50,3 +50,6 @@ release:
   github:
     owner: CamiloUrrea
     name: PipelineGuard
+  # A tag with a pre-release suffix (v1.1.0-rc.1) is published as a GitHub
+  # pre-release, so it is never marked as "Latest".
+  prerelease: auto
