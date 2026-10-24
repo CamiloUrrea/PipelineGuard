@@ -48,21 +48,27 @@ func RunGitleaks() ([]byte, error) {
 		"gitleaks",
 		gitleaksBinary,
 		"https://github.com/gitleaks/gitleaks",
-		func(reportPath string) []string {
-			return []string{
-				"detect",
-				"--report-format", "json",
-				"--report-path", reportPath,
-				"--no-banner",
-			}
-		},
+		gitleaksArgs,
 	)
+}
+
+// gitleaksArgs builds the gitleaks command-line arguments for reportPath.
+func gitleaksArgs(reportPath string) []string {
+	return []string{
+		"detect",
+		"--report-format", "json",
+		"--report-path", reportPath,
+		"--no-banner",
+	}
 }
 
 // RunTrivy runs a trivy filesystem scan against the current directory and
 // returns the raw JSON report bytes. It satisfies orchestrator.ScannerFunc.
 //
-// Command: `trivy fs --format json --output <tmp> .` (matches docs/parsers.md).
+// Command: `trivy fs --scanners vuln --format json --output <tmp> .`.
+// `--scanners vuln` turns off trivy's own secret scanner, which `trivy fs`
+// runs by default: it duplicates gitleaks and its results were discarded
+// anyway (only Results[].Vulnerabilities is parsed).
 // By default trivy exits 0 whether or not it finds vulnerabilities, so any
 // non-zero exit here is a real failure unless a report was still produced.
 func RunTrivy() ([]byte, error) {
@@ -70,15 +76,19 @@ func RunTrivy() ([]byte, error) {
 		"trivy",
 		trivyBinary,
 		"https://github.com/aquasecurity/trivy",
-		func(reportPath string) []string {
-			return []string{
-				"fs",
-				"--format", "json",
-				"--output", reportPath,
-				".",
-			}
-		},
+		trivyArgs,
 	)
+}
+
+// trivyArgs builds the trivy command-line arguments for reportPath.
+func trivyArgs(reportPath string) []string {
+	return []string{
+		"fs",
+		"--scanners", "vuln",
+		"--format", "json",
+		"--output", reportPath,
+		".",
+	}
 }
 
 // runScanner is the shared body of RunGitleaks/RunTrivy: locate the binary, give

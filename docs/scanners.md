@@ -37,9 +37,25 @@ y eso rompería el parseo JSON.
 | Escáner  | Comando                                                              |
 |----------|--------------------------------------------------------------------|
 | gitleaks | `gitleaks detect --report-format json --report-path <tmp> --no-banner` |
-| trivy    | `trivy fs --format json --output <tmp> .`                           |
+| trivy    | `trivy fs --scanners vuln --format json --output <tmp> .`           |
 
-(Coinciden con lo documentado en `docs/parsers.md`.)
+(Coinciden con lo documentado en `docs/parsers.md`.) Los argumentos los arman
+las funciones puras `gitleaksArgs(reportPath)` / `trivyArgs(reportPath)`, que
+los tests comprueban literalmente.
+
+### trivy: solo vulnerabilidades (`--scanners vuln`)
+
+Desde el Bloque 22, trivy corre con `--scanners vuln`. Sin ese flag, `trivy fs`
+corre por defecto **también su escáner de secretos** (`default [vuln,secret]`):
+duplicaba el trabajo de gitleaks y su resultado se descartaba igual, porque
+`parsers.ParseTrivy` solo lee `Results[].Vulnerabilities`. Con el flag, el
+escaneo es más rápido y el reporte no trae secretos que nadie usa.
+
+Sintaxis **verificada** con `trivy fs --help` de trivy **v0.72.0** (la versión
+que recomienda el README): `--scanners strings  comma-separated list of what
+security issues to detect (allowed values: vuln,misconfig,secret,license)
+(default [vuln,secret])`. No se ejecutó un escaneo real con el flag en la
+máquina de desarrollo.
 
 ## Timeout
 
@@ -140,6 +156,8 @@ Devuelve `false` (éxito) cuando:
   vuelve mucho antes de los 30s. Es el patrón de "helper process" de Go: no
   depende de `sleep` ni de un shell, así que corre igual en el runner Linux de
   CI y en Windows.
+- Argumentos exactos de cada escáner (`TestGitleaksArgs`,
+  `TestTrivyArgs_VulnScannerOnly`, este último fija `--scanners vuln`).
 - Chequeo en tiempo de compilación de que `RunGitleaks` y `RunTrivy` satisfacen
   `orchestrator.ScannerFunc`.
 

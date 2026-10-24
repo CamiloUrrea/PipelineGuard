@@ -156,3 +156,16 @@ func TestRunTrivy_Timeout(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, elapsed, sleepFor/2, "RunTrivy must return on timeout, not wait for the scanner")
 }
+
+func TestGitleaksArgs(t *testing.T) {
+	assert.Equal(t,
+		[]string{"detect", "--report-format", "json", "--report-path", "/tmp/r.json", "--no-banner"},
+		gitleaksArgs("/tmp/r.json"))
+}
+
+func TestTrivyArgs_VulnScannerOnly(t *testing.T) {
+	// --scanners vuln: trivy's own secret scanner would duplicate gitleaks.
+	assert.Equal(t,
+		[]string{"fs", "--scanners", "vuln", "--format", "json", "--output", "/tmp/r.json", "."},
+		trivyArgs("/tmp/r.json"))
+}
