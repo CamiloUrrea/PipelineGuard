@@ -38,8 +38,8 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^chore:'
+      - '^docs(\(.+\))?:'
+      - '^chore(\(.+\))?:'
   groups:
     - title: Features
       regexp: '^feat'
