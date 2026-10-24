@@ -3,7 +3,9 @@
 A partir del Bloque 17, PipelineGuard usa CI/CD real sobre su propio repositorio:
 un workflow de integración continua (`ci.yml`) en cada PR/push, y un workflow de
 release (`release.yml`) que corre GoReleaser (ver `docs/goreleaser.md`) cuando se
-empuja un tag `v*`.
+empuja un tag `v*`. Desde el Bloque 23 hay además un workflow de *dogfooding*
+(`self-scan.yml`, PipelineGuard sobre su propio repo) y Dependabot
+(`.github/dependabot.yml`).
 
 > **Estado de verificación.** Localmente, ambos workflows se validan como YAML
 > sintáctico (`gopkg.in/yaml.v3`, el mismo método que para `.goreleaser.yaml` y
@@ -105,6 +107,74 @@ Este job es el equivalente en CI de lo que hasta ahora solo se corría a mano en
 cada bloque de `action/scripts/` (Bloques 12, 13, 15, 16) — ver `docs/action-install.md`,
 `docs/action-run.md`, `docs/action-comment.md`, `docs/action-gate.md`.
 
+## `self-scan.yml` — dogfooding (Bloque 23)
+
+Corre PipelineGuard **sobre el propio repositorio**. Es un workflow aparte de
+`ci.yml` porque necesita permisos de escritura que CI no tiene.
+
+**Triggers:** `pull_request` y `push` a `main`.
+
+**Concurrencia:** `group: self-scan-${{ github.ref }}` con
+`cancel-in-progress: true`: un push nuevo a la misma rama/PR cancela la corrida
+anterior en curso.
+
+**Permisos:** `contents: read` a nivel de workflow; el job `pipelineguard`
+agrega `pull-requests: write` (comentario del PR) y `security-events: write`
+(subida del SARIF).
+
+**Steps:**
+
+1. `actions/checkout@v7`.
+2. `actions/setup-go@v7` con `go-version-file: go.mod` (lo necesita el
+   `go install` de gitleaks).
+3. `go install github.com/zricethezav/gitleaks/v8@v8.30.1`.
+4. trivy `v0.72.0` con el script oficial:
+   `curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.72.0`.
+   El script sale de la rama `main` de trivy; la versión de trivy sí queda fija.
+5. `uses: ./action` con `version: v1`.
+
+**Qué prueba y qué no.** `uses: ./action` toma `action.yml` y los scripts de
+`action/scripts/` **del checkout del PR**, pero `version: v1` instala el
+**último binario publicado** (`v1.x.y` más alto). Por tanto:
+
+- **Sí** prueba los cambios del PR en la Action (instalación, `run.sh`, SARIF,
+  comentario, resumen del job, avisos, gate) contra un repo real.
+- **No** prueba el código Go del PR: el binario es el de la última release. El
+  código Go lo prueba `ci.yml`.
+- Pasa `version: v1` porque con una Action local no hay un ref de release del
+  que inferir la versión (ver `docs/action.md`, "Qué versión del binario se
+  instala").
+
+No hay `.pipelineguard.yml` en el repo, así que corre en **modo informativo**:
+los hallazgos (p. ej. si gitleaks marca algún fixture de prueba) nunca hacen
+fallar el job; un fallo de la herramienta (exit `2`) sí.
+
+**Validación local:** `actionlint` (v1.7.12) sin hallazgos sobre `self-scan.yml`,
+`ci.yml` y `release.yml`. actionlint también lee los inputs de `./action`. Todavía
+no corrió en GitHub.
+
+## Dependabot (`.github/dependabot.yml`, Bloque 23)
+
+`version: 2`, revisión **semanal** de tres entradas:
+
+| Ecosistema | `directory` | Qué actualiza |
+|---|---|---|
+| `gomod` | `/` | Dependencias de `go.mod` / `go.sum`. |
+| `github-actions` | `/` | Actions usadas en `.github/workflows/`. |
+| `github-actions` | `/action` | Actions usadas por la composite action (`action/action.yml`: `github/codeql-action/upload-sarif`). |
+
+Los PRs de Dependabot usan `commit-message: { prefix: chore, include: scope }`,
+es decir, `chore(deps): …`. Con los regex de `.goreleaser.yaml` (Bloque 23),
+esos commits quedan fuera del changelog (ver `docs/goreleaser.md`).
+
+> **No verificado:** la documentación oficial de Dependabot solo dice que, para
+> `github-actions`, `directory: /` revisa `.github/workflows` y un `action.yml`
+> en la **raíz**. No documenta explícitamente un `action.yml` en otro
+> directorio; la entrada `/action` sigue la convención habitual para composite
+> actions en subdirectorios. Se confirmará cuando Dependabot corra en GitHub (si
+> no abre PRs para `action/action.yml`, revisar esta entrada). El archivo se
+> validó solo como YAML sintáctico.
+
 ## `release.yml`
 
 **Trigger:** `push` de un tag que matchea `v*` (p. ej. `v1.0.0`, `v1.2.3`).
@@ -196,8 +266,17 @@ Sigue **sin** correr en GitHub:
   **`prerelease: auto`**: nunca se ha empujado un tag con sufijo
   (`v1.1.0-rc.1`). Localmente, la guardia solo se ejecutó con un `git` falso (ver
   el punto 4 de `release.yml`) y `prerelease: auto` solo pasó `goreleaser check`.
-- **Los cambios del Bloque 22 en `ci.yml`**: `permissions: contents: read` y el
-  job `govulncheck` (validados solo como YAML y, govulncheck, corriéndolo a mano).
+- **`self-scan.yml`** (Bloque 23): validado solo con actionlint. Su primera
+  corrida será también la primera corrida real de los cambios del Bloque 23 en
+  la Action (`continue-on-error` en un step `uses:`, `steps.<id>.outcome`,
+  resumen del job).
+- **`github.action_ref` como versión del binario**: `self-scan.yml` pasa
+  `version: v1`, así que no lo ejercita. Se probará con el primer uso real de
+  `@v1.1.0` sin input `version`.
+- **Dependabot**, en especial la entrada `directory: /action` (ver arriba).
+
+Los cambios del Bloque 22 en `ci.yml` (`permissions: contents: read` y el job
+`govulncheck`) ya corrieron en verde en GitHub.
 
 GoReleaser **v2.18.3** se instaló en la máquina de desarrollo en el Bloque 22
 (`go install`) y `goreleaser check` pasa (ver `docs/goreleaser.md`). No se corrió

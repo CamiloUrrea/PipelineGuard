@@ -39,9 +39,10 @@ El valor del proyecto no está en la detección (eso ya lo hacen bien las herram
 ```
 Repo del usuario
    └─ .github/workflows/*.yml (una línea: uses: CamiloUrrea/PipelineGuard/action@v1)
-        └─ composite action (action/action.yml, 5 steps en bash)
+        └─ composite action (action/action.yml, 7 steps; 5 hasta v1.0.x)
              ├─ 1. install.sh
-             │     ├─ resuelve "v1" a la release real más alta (API de Releases)
+             │     ├─ versión: input `version` o, si viene vacío, github.action_ref (desde v1.1.0)
+             │     ├─ vX.Y.Z tal cual; "v1" → la release real más alta (API de Releases); rama/SHA → error
              │     ├─ detecta OS/arch del runner
              │     ├─ descarga el binario correcto desde GitHub Releases
              │     └─ verifica el checksum (checksums.txt de GoReleaser)
@@ -52,9 +53,11 @@ Repo del usuario
              │     ├─ decide enforce/fail_threshold (internal/policy)
              │     ├─ genera Markdown + SARIF (internal/report)
              │     └─ sale con 0 / 1 / 2 (ver §9); run.sh guarda ese código como output
-             ├─ 3. upload-sarif → pestaña Security de GitHub
-             ├─ 4. comment.sh → publica/actualiza el comentario del PR con `gh api`
-             └─ 5. gate.sh → lee el exit code y decide si el job falla
+             ├─ 3. upload-sarif → pestaña Security de GitHub (opcional: continue-on-error)
+             ├─ 4. comment.sh → publica/actualiza el comentario del PR con `gh api` (opcional: continue-on-error)
+             ├─ 5. reporte → resumen del job ($GITHUB_STEP_SUMMARY)
+             ├─ 6. ::warning si falló la subida del SARIF o el comentario
+             └─ 7. gate.sh → lee el exit code y decide si el job falla (el único que decide)
 ```
 
 El binario **no** habla con la API de GitHub. Solo escribe el SARIF a disco y
@@ -79,14 +82,21 @@ pipelineguard/
 │   ├── orchestrator/        # une todo: escáneres → parsers → scoring → report → policy
 │   └── scanners/            # ejecución real de gitleaks/trivy (os/exec + timeout)
 ├── action/
-│   ├── action.yml           # composite action (5 steps)
+│   ├── action.yml           # composite action (7 steps)
 │   └── scripts/             # install.sh, run.sh, comment.sh, gate.sh + sus tests *_test.bats
 ├── docs/                    # documentación por componente (índice en docs/README.md)
 ├── .goreleaser.yaml
-├── .github/workflows/
-│   ├── ci.yml               # build/vet/gofmt/test + golangci-lint + govulncheck + shellcheck/bats, en cada PR y push a main
-│   └── release.yml          # GoReleaser + tag flotante vN, en cada tag v*
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml           # build/vet/gofmt/test + golangci-lint + govulncheck + shellcheck/bats, en cada PR y push a main
+│   │   ├── self-scan.yml    # dogfooding: PipelineGuard sobre el propio repo (último binario publicado + ./action)
+│   │   └── release.yml      # GoReleaser + tag flotante vN, en cada tag v*
+│   ├── dependabot.yml       # gomod + github-actions (/ y /action), semanal
+│   ├── ISSUE_TEMPLATE/      # issue forms (bug, feature) + config.yml
+│   └── pull_request_template.md
+├── .gitattributes           # LF en todo el repo (también en checkouts de Windows)
 ├── go.mod / go.sum
+├── CONTRIBUTING.md / SECURITY.md
 ├── LICENSE (MIT)
 └── README.md
 ```
@@ -161,14 +171,14 @@ severity_weights:
 - **Unitarios (Go)**: todos los paquetes de `internal/` y `cmd/`, con `testing` + `testify`. Los parsers usan fixtures JSON con la forma real de las salidas de gitleaks/trivy, con valores ficticios. Nunca se ejecutan los binarios reales: `internal/scanners` solo prueba "binario ausente", la regla de `isExecutionFailure` y el timeout (con el propio ejecutable de test como escáner falso).
 - **Scripts de la Action (bash)**: `shellcheck` + `bats`, con `gh`/`curl`/`pipelineguard` falsos en PATH. Nunca red ni GitHub real.
 - **Integración / end-to-end**: **no hay un test automatizado**. La validación end-to-end se hizo **a mano**, corriendo la Action real (release `v0.1.0`) contra un Pull Request real en `pipelineguard-demo-vulnerable-app`. Esa corrida encontró el bug `-f` vs `-F` de `comment.sh` (ver `docs/action-comment.md`). Con `v1.0.0` se repitió a mano en el mismo repo demo (runner `ubuntu-latest`, linux/amd64, `action@v1` sin input `version`): resolución de `v1` a `v1.0.0`, descarga con checksum verificado, gitleaks y trivy reales, subida de SARIF, comentario en el PR y fallo del gate con exit `1`. No se validaron Windows ni macOS, PRs desde forks, repos privados sin GitHub Advanced Security, ni repos con muchos hallazgos. Automatizar esa prueba sigue pendiente.
-- **CI del propio proyecto**: `ci.yml` corre build + `go vet` + `gofmt` + tests, `golangci-lint`, `govulncheck`, y `shellcheck` + `bats`, en cada PR y push a `main`, con `GITHUB_TOKEN` de solo lectura (ver `docs/ci-cd.md`).
+- **CI del propio proyecto**: `ci.yml` corre build + `go vet` + `gofmt` + tests, `golangci-lint`, `govulncheck`, y `shellcheck` + `bats`, en cada PR y push a `main`, con `GITHUB_TOKEN` de solo lectura (ver `docs/ci-cd.md`). Aparte, `self-scan.yml` hace *dogfooding*: corre la Action del propio PR (`uses: ./action`) con el último binario publicado (`version: v1`) sobre el repo, en modo informativo; no prueba el código Go del PR.
 
 ## 11. Release y versionado
 
 - SemVer estricto (`v1.0.0`, `v1.2.3`).
-- Tag flotante `v1` apuntando siempre al último release de la serie 1.x, para que los usuarios puedan fijar `uses: CamiloUrrea/PipelineGuard/action@v1`.
+- Tag flotante `v1` apuntando siempre al último release de la serie 1.x, para que los usuarios puedan fijar `uses: CamiloUrrea/PipelineGuard/action@v1`. Desde v1.1.0, el binario sigue a la versión de la Action: `@v1` instala el último `1.x` y `@v1.1.0` exactamente `v1.1.0` (`inputs.version || github.action_ref`, ver `docs/action.md`). En `v1.0.x`, `@v1.0.0` instala igualmente el último `1.x`.
 - Flujo completo automatizado en `.github/workflows/release.yml`: GoReleaser (build matrix multiplataforma → checksums → changelog → publicación del GitHub Release) y, solo si GoReleaser tuvo éxito, el step **`Update floating major version tag`**, que deriva el major del tag (`v1.0.0` → `v1`) y hace `git tag -fa` + `git push --force` de ese tag mayor sobre el commit recién publicado (ver `docs/ci-cd.md`). El tag mayor lo mueve ese step, no GoReleaser.
-- Pre-releases (`v1.1.0-rc.1`, cualquier tag que no sea `vX.Y.Z` limpio) **no** mueven el tag flotante, y `install.sh` tampoco las elige al resolver `v1`.
+- Pre-releases (`v1.1.0-rc.1`, cualquier tag que no sea `vX.Y.Z` limpio) **no** mueven el tag flotante, y `install.sh` tampoco las elige al resolver `v1`. Sí se pueden instalar pidiéndolas explícitamente (`version: v1.1.0-rc.1`, o fijando la Action a ese tag desde v1.1.0); GoReleaser las publica como *pre-release* (`prerelease: auto`).
 - Hoy `checksums.txt` **no** va firmado. La firma de binarios con cosign es roadmap **v1.4**.
 
 ## 12. Roadmap resumido

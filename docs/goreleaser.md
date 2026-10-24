@@ -80,7 +80,7 @@ implica).
 
 - `sort: asc` — orden cronológico ascendente.
 - `use: github` — agrupa por PRs/commits vía la API de GitHub.
-- `filters.exclude` — descarta commits `docs:` y `chore:` del changelog.
+- `filters.exclude` — descarta del changelog los commits `docs:` y `chore:`, también con scope (`^docs(\(.+\))?:`, `^chore(\(.+\))?:`, desde el Bloque 23): así `chore(deps): …` de Dependabot tampoco entra. Validado con `goreleaser check` (v2.18.3) y comprobando las regex con `regexp` de Go: excluyen `docs: x`, `docs(readme): x`, `chore: x` y `chore(deps): bump`; no excluyen `feat: x`, `fix(chore): x` ni `docsy: x`.
 - `groups` — dos secciones: **Features** (`^feat`) y **Fixes** (`^fix`).
 
 ### `release`
