@@ -26,16 +26,29 @@ empuja un tag `v*`.
 
 **Triggers:** `pull_request` (cualquier rama) y `push` a `main`.
 
-Tres jobs **independientes**, corren en paralelo (ninguno depende de otro vía
+**Permisos** (Bloque 22), a nivel de workflow:
+
+```yaml
+permissions:
+  contents: read
+```
+
+Ningún job de CI escribe en el repo ni usa la API de GitHub más allá de leer
+el código, así que el `GITHUB_TOKEN` queda en solo lectura en vez de heredar los
+permisos por defecto del repositorio (que pueden ser de escritura).
+
+Cuatro jobs **independientes**, corren en paralelo (ninguno depende de otro vía
 `needs:`):
 
 ### Job `go`
 
 1. `actions/checkout@v7`.
 2. `actions/setup-go@v7` con `go-version-file: go.mod` — lee la versión de Go
-   directamente del `go.mod` del repo (`go 1.23` al momento de escribir esto) en
-   vez de hardcodearla en el workflow, así que si `go.mod` sube de versión el
-   workflow se actualiza solo.
+   directamente del `go.mod` del repo (`go 1.26` desde el Bloque 22; antes
+   `go 1.23`) en vez de hardcodearla en el workflow, así que si `go.mod` sube de
+   versión el workflow se actualiza solo. Se subió a 1.26 porque, a octubre de
+   2026, solo Go 1.26 y 1.27 reciben parches de seguridad. `go.mod` no tiene
+   línea `toolchain` (`go mod tidy -diff` no la pide).
 3. `go build ./...`.
 4. `go vet ./...`.
 5. Verificación de formato: `gofmt -l .` lista los archivos mal formateados; si
@@ -50,6 +63,27 @@ Tres jobs **independientes**, corren en paralelo (ninguno depende de otro vía
 3. `golangci/golangci-lint-action@v9` con `version: v2.13` (versión de la
    herramienta `golangci-lint` en sí, no de la action). **No hay `.golangci.yml`
    en el repo**: corre con la configuración por defecto de golangci-lint.
+
+### Job `govulncheck` (Bloque 22)
+
+1. `actions/checkout@v7`.
+2. `actions/setup-go@v7` con `go-version-file: go.mod` (mismas versiones de las
+   actions que el resto de jobs).
+3. `go install golang.org/x/vuln/cmd/govulncheck@latest`.
+4. `govulncheck ./...` — falla el job si el código **llama** a una función con
+   una vulnerabilidad conocida, en las dependencias o en la librería estándar
+   del Go con que se compila. Las vulnerabilidades en paquetes importados pero
+   no alcanzables solo se mencionan; no fallan el job.
+
+`@latest` es **deliberado** (y está comentado así en el YAML): el valor de
+govulncheck es consultar la base de vulnerabilidades al día, y el job no maneja
+secretos (el token es de solo lectura).
+
+Corrido localmente (govulncheck v1.9.0, Go local 1.27.0): `Your code is affected
+by 0 vulnerabilities`, exit `0`. Los avisos no alcanzables que reportó eran todos
+de la stdlib del Go **local** 1.27.0 (corregidos en 1.27.2/1.27.3), no de las
+dependencias del módulo; en CI el resultado depende del parche de Go 1.26 que
+instale `setup-go`. Este job todavía no corrió en GitHub.
 
 ### Job `bash`
 
@@ -107,7 +141,9 @@ Un único job (`goreleaser`):
      `Skipping floating tag update: …` y sale con `0`, **sin** ejecutar ningún
      comando de git. Sin esta guardia, publicar una RC apuntaría a todos los
      usuarios de `@v1` a una versión sin terminar. El GitHub Release de ese tag
-     lo sigue creando GoReleaser en el step anterior. Verificado localmente
+     lo sigue creando GoReleaser en el step anterior y, desde el Bloque 22
+     (`release.prerelease: auto` en `.goreleaser.yaml`), lo marca como
+     **pre-release**, así que tampoco aparece como "Latest" en GitHub. Verificado localmente
      extrayendo el `run:` del YAML y ejecutándolo con un `git` falso:
      `v1.1.0-rc.1`, `v2.0.0-beta` y `v1.2.3+build.5` → se omite;
      `v1.2.3` / `v1.0.0` / `v0.1.0` → `tag -fa v1|v0` + `push --force`.
@@ -137,7 +173,7 @@ crear ni configurar un secret nuevo**. `goreleaser-action` lo necesita en el
 entorno para autenticar las llamadas a la API de GitHub (crear el Release, subir
 assets, leer PRs/commits para el changelog).
 
-## Por qué los tres jobs de `ci.yml` corren en paralelo
+## Por qué los jobs de `ci.yml` corren en paralelo
 
 Ninguno depende del resultado de otro: `go` no necesita que `lint` termine para
 compilar, y viceversa. Sin `needs:` entre ellos, GitHub Actions los agenda todos
@@ -148,17 +184,21 @@ vs. bash) y no hay razón para serializarlos.
 
 ## Qué falta verificar en una corrida real
 
-`ci.yml` y el step de GoReleaser de `release.yml` ya corrieron en GitHub (ver el
-estado al inicio). Lo que se agregó **después** de la última corrida real, y se
-ejecutará por primera vez con el tag `v1.0.0`:
+Con el tag `v1.0.0` ya corrieron de verdad el step de GoReleaser y el step
+**`Update floating major version tag`**: la Action fijada como
+`CamiloUrrea/PipelineGuard/action@v1` resolvió `v1` a `v1.0.0` en el repo demo
+(ver "Estado del proyecto" en el `README.md` de la raíz), lo que también ejercitó
+`install.sh` (`resolve_version`) contra la API real de Releases.
 
-- **Step `Update floating major version tag`**: el `git tag -fa` + `git push
-  --force` de `v1` con el `GITHUB_TOKEN`, y la guardia de pre-release. Localmente
-  solo se validó el YAML y se ejecutó el `run:` extraído con un `git` falso (ver
-  el punto 4 de `release.yml`).
-- **`install.sh` resolviendo `v1`** contra la API real de Releases
-  (`resolve_version`), cubierto hasta ahora solo con un `curl` falso en bats.
+Sigue **sin** correr en GitHub:
 
-GoReleaser no está instalado en la máquina de desarrollo (ver
-`docs/goreleaser.md`), así que `release.yml` no se puede simular localmente con
-`--snapshot`: la única prueba es empujar un tag real.
+- **La guardia de pre-release** del step del tag flotante y
+  **`prerelease: auto`**: nunca se ha empujado un tag con sufijo
+  (`v1.1.0-rc.1`). Localmente, la guardia solo se ejecutó con un `git` falso (ver
+  el punto 4 de `release.yml`) y `prerelease: auto` solo pasó `goreleaser check`.
+- **Los cambios del Bloque 22 en `ci.yml`**: `permissions: contents: read` y el
+  job `govulncheck` (validados solo como YAML y, govulncheck, corriéndolo a mano).
+
+GoReleaser **v2.18.3** se instaló en la máquina de desarrollo en el Bloque 22
+(`go install`) y `goreleaser check` pasa (ver `docs/goreleaser.md`). No se corrió
+`goreleaser release` (ni siquiera `--snapshot`).

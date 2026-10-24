@@ -4,17 +4,17 @@
 [![Release](https://img.shields.io/github/v/release/CamiloUrrea/PipelineGuard)](https://github.com/CamiloUrrea/PipelineGuard/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**PipelineGuard** orquesta escáneres de seguridad ya probados en la industria ([gitleaks](https://github.com/gitleaks/gitleaks) para secretos, [trivy](https://github.com/aquasecurity/trivy) para vulnerabilidades de dependencias) y consolida sus hallazgos en **un solo reporte**, con severidad normalizada y un risk score agregado — en vez de revisar tres formatos de salida distintos en cada Pull Request.
+**PipelineGuard** orquesta escáneres de seguridad ya probados en la industria ([gitleaks](https://github.com/gitleaks/gitleaks) para secretos, [trivy](https://github.com/aquasecurity/trivy) para vulnerabilidades de dependencias) y consolida sus hallazgos en **un solo reporte**, con severidad normalizada y un risk score agregado — en vez de revisar la salida de cada escáner por separado en cada Pull Request.
 
-Se instala en cualquier repositorio con una línea en tu workflow. Gratis, open source, sin cuenta ni backend externo.
+Se agrega a tu workflow con un step (`uses: CamiloUrrea/PipelineGuard/action@v1`), más los steps que instalan gitleaks y trivy, que no vienen en los runners (ver [Uso](#uso)). Gratis, open source, sin cuenta ni backend externo.
 
 ## Qué hace
 
 - Corre `gitleaks` y `trivy` sobre tu repositorio.
 - Normaliza sus hallazgos a un esquema común con severidad unificada (`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO`).
-- Publica un comentario en el Pull Request con la tabla de hallazgos y el risk score — y lo **actualiza** en cada push nuevo, sin duplicarlo.
+- Publica un comentario en el Pull Request con la tabla de hallazgos y el risk score — y lo **actualiza** en cada push nuevo, sin duplicarlo. Si hay más de 100 hallazgos, el comentario muestra los 100 más graves y avisa cuántos omitió; el detalle completo queda en la pestaña Security.
 - Sube un reporte [SARIF](https://docs.github.com/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning) a la pestaña **Security** de GitHub.
-- Por defecto es **informativo**: nunca bloquea tu PR. Tú decides si y cuándo activar el bloqueo real.
+- Por defecto es **informativo**: los hallazgos no hacen fallar tu PR. Tú decides si y cuándo activar el bloqueo real. Ojo: un **fallo de la herramienta** (exit `2`: escáner ausente, timeout, configuración inválida) **sí** hace fallar el job también en modo informativo, para que un escaneo roto nunca pase por "0 hallazgos". Lo mismo si falla la subida del SARIF o la publicación del comentario (ver [Limitaciones conocidas](#limitaciones-conocidas)).
 
 ## Uso
 
@@ -41,14 +41,16 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: 'stable'
-      - run: go install github.com/zricethezav/gitleaks/v8@latest
-      - run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+      - run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.72.0
 
       - name: Run PipelineGuard
         uses: CamiloUrrea/PipelineGuard/action@v1
 ```
 
-Eso es todo — sin `.pipelineguard.yml`, corre con la configuración por defecto: ambos escáneres activos, modo informativo (nunca falla el build).
+> **Nota sobre el instalador de trivy:** el script `install.sh` se descarga desde la rama `main` de trivy, no desde un release fijo (la versión `v0.72.0` sí queda fijada). Para máxima seguridad, descarga el binario del [release de trivy](https://github.com/aquasecurity/trivy/releases) y verifica su checksum.
+
+Con eso, sin `.pipelineguard.yml`, corre con la configuración por defecto: ambos escáneres activos y modo informativo (los hallazgos no fallan el build).
 
 ## Configuración (opcional)
 
@@ -75,9 +77,9 @@ Ver [`docs/config.md`](docs/config.md) para el esquema completo.
 
 | Código de salida | Significado |
 |---|---|
-| `0` | Sin hallazgos que superen el umbral configurado. |
+| `0` | Sin hallazgos que igualen o superen `fail_threshold`, **o** modo informativo (`enforce: false`, el default) aunque haya hallazgos. |
 | `1` | Hallazgo(s) que igualan o superan `fail_threshold`, con `enforce: true`. |
-| `2` | Fallo de la herramienta en sí (escáner no encontrado, timeout, error de configuración) — no es un veredicto de seguridad. |
+| `2` | Fallo de la herramienta en sí (escáner no encontrado, timeout, error de configuración) — no es un veredicto de seguridad. Hace fallar el job también en modo informativo. |
 
 ## Documentación
 
@@ -88,12 +90,20 @@ Este README cubre lo esencial para usarlo. Para el diseño interno, decisiones d
 
 ## Estado del proyecto
 
-`v1.0.0`. Funcional y validado de extremo a extremo contra un repositorio real (ver [pipelineguard-demo-vulnerable-app](https://github.com/CamiloUrrea/pipelineguard-demo-vulnerable-app)). Limitaciones conocidas, documentadas honestamente:
+- **Versión estable publicada: `v1.0.0`.** Los cambios más recientes (truncado del comentario, aviso de semgrep, trivy solo con su escáner de vulnerabilidades, Go 1.26) saldrán en `v1.0.1`.
+- **Validado** a mano en el repo demo [pipelineguard-demo-vulnerable-app](https://github.com/CamiloUrrea/pipelineguard-demo-vulnerable-app), en un runner `ubuntu-latest` (linux/amd64), con `CamiloUrrea/PipelineGuard/action@v1` y sin input `version`: resolución de `v1` a `v1.0.0`, descarga del binario con checksum verificado, gitleaks y trivy reales, subida del SARIF, comentario en el PR y fallo del gate con exit `1`.
+- **No validado:** Windows y macOS, PRs desde forks, repos privados sin GitHub Advanced Security, y repos con muchos hallazgos (el truncado del comentario es nuevo en `v1.0.1` y solo tiene pruebas unitarias).
 
-- `ignore_paths` se acepta en la configuración pero todavía no se aplica (reservado para v1.1).
-- `semgrep` está en el roadmap (v1.1), no implementado todavía.
+### Limitaciones conocidas
+
+- **PRs desde forks:** GitHub les da un `GITHUB_TOKEN` de solo lectura, así que la publicación del comentario y la subida del SARIF pueden fallar (y, con ellas, el job).
+- **Repos privados sin GitHub Advanced Security:** la subida del SARIF (`upload-sarif`) puede fallar, porque code scanning no está disponible.
+- `semgrep` está en el roadmap (v1.1), no implementado todavía: `scanners.semgrep: true` se acepta pero se ignora (el binario lo avisa en stderr).
+- `ignore_paths` se acepta en la configuración pero todavía no se aplica: los hallazgos en esas rutas siguen apareciendo (reservado para v1.1).
+- **Fijar la versión:** `uses: CamiloUrrea/PipelineGuard/action@v1.0.0` fija los scripts de la Action, pero el binario se resuelve aparte con el input `version` (default `v1`), así que igual instala el último release `1.x`. Para fijar también el binario, agrega `with: { version: v1.0.0 }`.
+- **Windows:** se publican binarios para Windows (y macOS), pero el soporte no se ha probado en un runner real.
 - Los checksums de los binarios garantizan integridad, no autenticidad (firma con cosign planeada para v1.4).
 
 ## Licencia
 
-[MIT](LICENSE)
+[MIT](LICENSE) — Camilo Urrea

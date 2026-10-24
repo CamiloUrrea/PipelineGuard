@@ -45,7 +45,7 @@ En cualquier caso de error, el `Config` devuelto es el valor cero (`Config{}`).
 scanners:
   gitleaks: true
   trivy: true
-  semgrep: false        # reservado para v1.1: hoy se acepta pero se ignora
+  semgrep: false        # reservado para v1.1: hoy se acepta pero se ignora (con true, aviso en stderr)
 
 enforce: false           # si es true, el build falla si ALGÚN hallazgo alcanza fail_threshold
 fail_threshold: CRITICAL # CRITICAL | HIGH | MEDIUM
@@ -62,7 +62,7 @@ severity_weights:
 |--------------------|------------------|----------------------------------------------------------------------------|
 | `scanners.gitleaks`| `bool`           | Ejecutar gitleaks (detección de secretos).                                  |
 | `scanners.trivy`   | `bool`           | Ejecutar trivy (vulnerabilidades de dependencias).                          |
-| `scanners.semgrep` | `bool`           | Reservado para v1.1 (SAST). Se **acepta** en el YAML, pero `internal/orchestrator` lo **ignora**: con `true` no corre semgrep ni da error. |
+| `scanners.semgrep` | `bool`           | Reservado para v1.1 (SAST). Se **acepta** en el YAML, pero `internal/orchestrator` lo **ignora**: con `true` no corre semgrep ni da error, y el resultado es el mismo que con `false`. Desde el Bloque 22 sí se avisa: el binario imprime en **stderr** `pipelineguard: warning: scanners.semgrep está en true, pero semgrep aún no está implementado (roadmap v1.1): se ignora` (ver `docs/orchestrator.md`). |
 | `enforce`          | `bool`           | Si es `true`, el build falla cuando **algún** hallazgo tiene severidad **igual o mayor** que `fail_threshold`. Implementado en `policy.ShouldFail` (ver `docs/policy.md`); `cmd/pipelineguard` lo traduce en el exit code `1` (ver `docs/cmd.md`). Con `false` (default) el modo es informativo y nunca falla. |
 | `fail_threshold`   | `string`         | Umbral de **severidad** para el enforcement: `CRITICAL` \| `HIGH` \| `MEDIUM`. Se compara hallazgo por hallazgo; **no** tiene relación con el risk score total. |
 | `severity_weights` | `map[string]int` | Peso de cada severidad en el risk score. Sobreescribe los pesos por defecto llave por llave. |

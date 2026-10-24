@@ -2,14 +2,14 @@
 
 ## 1. Visión general
 
-**PipelineGuard** es una GitHub Action que orquesta escáneres de seguridad ya probados en la industria (gitleaks, trivy — semgrep en fase 2) y consolida sus resultados en **un único reporte normalizado, con severidad unificada y un risk score agregado**. Se instala en cualquier repositorio con una línea de configuración y corre automáticamente en cada Pull Request.
+**PipelineGuard** es una GitHub Action que orquesta escáneres de seguridad ya probados en la industria (gitleaks, trivy — semgrep en fase 2) y consolida sus resultados en **un único reporte normalizado, con severidad unificada y un risk score agregado**. Se agrega a cualquier repositorio con un step (`uses: CamiloUrrea/PipelineGuard/action@v1`) más los steps que instalan gitleaks y trivy, y corre automáticamente en cada Pull Request.
 
 El valor del proyecto no está en la detección (eso ya lo hacen bien las herramientas subyacentes), sino en la **orquestación, normalización y experiencia de desarrollador**: un solo reporte legible en vez de un formato de salida distinto por herramienta que nadie revisa.
 
 ## 2. Alcance
 
 ### MVP (v1)
-- Integración con **gitleaks** (secretos) y **trivy** (vulnerabilidades de dependencias). Trivy corre en modo **filesystem** (`trivy fs .` sobre el directorio del repo), **no** contra imágenes de contenedor. PipelineGuard solo toma de su reporte las vulnerabilidades de dependencias (`Results[].Vulnerabilities`, a partir de manifiestos/lockfiles).
+- Integración con **gitleaks** (secretos) y **trivy** (vulnerabilidades de dependencias). Trivy corre en modo **filesystem** (`trivy fs --scanners vuln .` sobre el directorio del repo), **no** contra imágenes de contenedor, y **solo** con su escáner de vulnerabilidades: su escáner de secretos (activo por defecto) duplicaría a gitleaks. PipelineGuard solo toma de su reporte las vulnerabilidades de dependencias (`Results[].Vulnerabilities`, a partir de manifiestos/lockfiles).
 - Normalización de hallazgos a un esquema común.
 - Cálculo de risk score agregado.
 - Comentario de resumen en el PR + archivo SARIF.
@@ -31,7 +31,7 @@ El valor del proyecto no está en la detección (eso ya lo hacen bien las herram
 | CLI framework | Cobra | Estándar de facto (usado por `gh`, `kubectl`). |
 | Testing | `testing` + `testify/assert` | Librería estándar + aserciones legibles. |
 | Release | GoReleaser | Compilación cruzada, checksums y changelog automatizados. |
-| Distribución de la Action | Composite action (bash) + binario en GitHub Releases | Evita overhead de Docker; arranque casi instantáneo; funciona en Linux/macOS/Windows. |
+| Distribución de la Action | Composite action (bash) + binario en GitHub Releases | Evita overhead de Docker; arranque casi instantáneo. Se publican binarios para Linux/macOS/Windows, pero solo Linux (`ubuntu-latest`, amd64) está validado en un runner real. |
 | Licencia | MIT | Máxima libertad de uso, alineado con el objetivo de que "cualquiera lo use". |
 
 ## 4. Arquitectura del sistema
@@ -75,7 +75,7 @@ pipelineguard/
 │   │   └── testdata/        # fixtures JSON con la forma real de cada salida (valores ficticios)
 │   ├── scoring/             # risk score ponderado + conteo por severidad
 │   ├── policy/              # decisión de enforcement (ShouldFail)
-│   ├── report/              # generación de Markdown y SARIF
+│   ├── report/              # generación de Markdown (con truncado para el límite de GitHub) y SARIF
 │   ├── orchestrator/        # une todo: escáneres → parsers → scoring → report → policy
 │   └── scanners/            # ejecución real de gitleaks/trivy (os/exec + timeout)
 ├── action/
@@ -84,7 +84,7 @@ pipelineguard/
 ├── docs/                    # documentación por componente (índice en docs/README.md)
 ├── .goreleaser.yaml
 ├── .github/workflows/
-│   ├── ci.yml               # build/vet/gofmt/test + golangci-lint + shellcheck/bats, en cada PR y push a main
+│   ├── ci.yml               # build/vet/gofmt/test + golangci-lint + govulncheck + shellcheck/bats, en cada PR y push a main
 │   └── release.yml          # GoReleaser + tag flotante vN, en cada tag v*
 ├── go.mod / go.sum
 ├── LICENSE (MIT)
@@ -133,7 +133,7 @@ Mapeo de severidad nativa → enum unificado:
 scanners:
   gitleaks: true
   trivy: true
-  semgrep: false   # reservado para v1.1: hoy se acepta pero se ignora
+  semgrep: false   # reservado para v1.1: hoy se acepta pero se ignora (con true, aviso en stderr)
 
 enforce: false             # si es true, falla si ALGÚN hallazgo alcanza fail_threshold
 fail_threshold: CRITICAL   # CRITICAL | HIGH | MEDIUM
@@ -152,16 +152,16 @@ severity_weights:
 
 ## 9. Salidas
 
-1. **Comentario en el PR** (Markdown): risk score total, tabla resumen de conteos por severidad y tabla de detalle ordenada por severidad. El binario lo genera a stdout; `run.sh` lo guarda en `pipelineguard-report.md` y `comment.sh` lo publica o actualiza vía `gh api` (un único comentario por PR).
-2. **Archivo SARIF**: subido con `github/codeql-action/upload-sarif`, visible nativamente en la pestaña *Security* del repo.
+1. **Comentario en el PR** (Markdown): risk score total, tabla resumen de conteos por severidad y tabla de detalle ordenada por severidad, con como mucho 100 filas y ≤ 60.000 caracteres en total (GitHub rechaza comentarios de más de 65.536); si se omiten filas, un aviso remite a la pestaña Security / SARIF (ver `docs/report.md`). El binario lo genera a stdout; `run.sh` lo guarda en `pipelineguard-report.md` y `comment.sh` lo publica o actualiza vía `gh api` (un único comentario por PR).
+2. **Archivo SARIF**: subido con `github/codeql-action/upload-sarif`, visible nativamente en la pestaña *Security* del repo. Nunca se trunca.
 3. **Código de salida**: `0` = OK (o `enforce: false`); `1` = `enforce: true` y **algún hallazgo** con severidad ≥ `fail_threshold`; `2` = fallo de la herramienta. `gate.sh` lo traduce en el resultado del job.
 
 ## 10. Estrategia de testing
 
 - **Unitarios (Go)**: todos los paquetes de `internal/` y `cmd/`, con `testing` + `testify`. Los parsers usan fixtures JSON con la forma real de las salidas de gitleaks/trivy, con valores ficticios. Nunca se ejecutan los binarios reales: `internal/scanners` solo prueba "binario ausente", la regla de `isExecutionFailure` y el timeout (con el propio ejecutable de test como escáner falso).
 - **Scripts de la Action (bash)**: `shellcheck` + `bats`, con `gh`/`curl`/`pipelineguard` falsos en PATH. Nunca red ni GitHub real.
-- **Integración / end-to-end**: **no hay un test automatizado**. La validación end-to-end se hizo **a mano**, corriendo la Action real (release `v0.1.0`) contra un Pull Request real en `pipelineguard-demo-vulnerable-app`. Esa corrida encontró el bug `-f` vs `-F` de `comment.sh` (ver `docs/action-comment.md`). Automatizar esa prueba sigue pendiente.
-- **CI del propio proyecto**: `ci.yml` corre build + `go vet` + `gofmt` + tests, `golangci-lint`, y `shellcheck` + `bats`, en cada PR y push a `main` (ver `docs/ci-cd.md`).
+- **Integración / end-to-end**: **no hay un test automatizado**. La validación end-to-end se hizo **a mano**, corriendo la Action real (release `v0.1.0`) contra un Pull Request real en `pipelineguard-demo-vulnerable-app`. Esa corrida encontró el bug `-f` vs `-F` de `comment.sh` (ver `docs/action-comment.md`). Con `v1.0.0` se repitió a mano en el mismo repo demo (runner `ubuntu-latest`, linux/amd64, `action@v1` sin input `version`): resolución de `v1` a `v1.0.0`, descarga con checksum verificado, gitleaks y trivy reales, subida de SARIF, comentario en el PR y fallo del gate con exit `1`. No se validaron Windows ni macOS, PRs desde forks, repos privados sin GitHub Advanced Security, ni repos con muchos hallazgos. Automatizar esa prueba sigue pendiente.
+- **CI del propio proyecto**: `ci.yml` corre build + `go vet` + `gofmt` + tests, `golangci-lint`, `govulncheck`, y `shellcheck` + `bats`, en cada PR y push a `main`, con `GITHUB_TOKEN` de solo lectura (ver `docs/ci-cd.md`).
 
 ## 11. Release y versionado
 

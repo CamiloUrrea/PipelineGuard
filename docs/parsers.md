@@ -46,7 +46,7 @@ Recibe el JSON crudo que produce `gitleaks detect --report-format json`
 
 Expone `ParseTrivy(raw []byte) ([]Finding, error)`.
 
-Recibe el JSON crudo que produce `trivy fs --format json` (escaneo de
+Recibe el JSON crudo que produce `trivy fs --scanners vuln --format json` (escaneo de
 vulnerabilidades de dependencias, no de imágenes de contenedor) y devuelve la
 lista de `Finding` normalizados.
 

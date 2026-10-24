@@ -44,11 +44,19 @@ type Result struct {
     SARIF      []byte
     ShouldFail bool
     Reason     string
+    Warnings   []string
 }
 ```
 
 Todo lo que produce una corrida, en una sola estructura. El SARIF se devuelve
 como `[]byte` (no se guarda a disco aquí).
+
+`Warnings` (desde el Bloque 22) son avisos **no fatales** para el usuario: nunca
+cambian `Findings`, `ShouldFail` ni el exit code. El orquestador **no** los
+imprime (no conoce `os.Stderr`); `cmd/pipelineguard` los escribe a **stderr**
+como `pipelineguard: warning: <texto>`, nunca a stdout, para no contaminar el
+Markdown del comentario (ver `docs/cmd.md`). Hoy el único aviso es el de semgrep
+(ver el punto 3 del flujo).
 
 ## Flujo de `Run`
 
@@ -61,9 +69,11 @@ como `[]byte` (no se guarda a disco aquí).
    - si `cfg.Scanners.Gitleaks` es `false`, **`runGitleaks` no se invoca nunca**.
 2. **trivy** — mismo patrón exacto con `cfg.Scanners.Trivy`, `runTrivy` y
    `parsers.ParseTrivy` (mensajes `running trivy scanner` / `parsing trivy output`).
-3. **semgrep** — `cfg.Scanners.Semgrep` se **ignora por completo** en este
-   bloque, aunque esté en `true`. No está implementado (es v1.1). No es error ni
-   warning.
+3. **semgrep** — no está implementado (es v1.1): con `cfg.Scanners.Semgrep` en
+   `true` no se corre nada y el resultado es idéntico al de `false`, pero se
+   agrega a `Result.Warnings` el aviso
+   `scanners.semgrep está en true, pero semgrep aún no está implementado (roadmap v1.1): se ignora`.
+   No es un error. (Hasta el Bloque 21 se ignoraba en silencio.)
 4. `score := scoring.ComputeScore(findings, cfg.SeverityWeights)`
 5. `counts := scoring.CountBySeverity(findings)`
 6. `markdown := report.GenerateMarkdown(findings, score, counts)`
@@ -111,7 +121,10 @@ trivy reales, y cubre:
   `ParseGitleaks`), sin panic.
 - Ambos escáneres deshabilitados → `Result` con `Findings` vacío, `Score=0`, sin
   error (el SARIF sigue siendo un documento válido vacío).
-- `cfg.Scanners.Semgrep=true` con el resto deshabilitado → ignorado, sin error.
+- `cfg.Scanners.Semgrep=true` con el resto deshabilitado → sin error, sin
+  hallazgos, `ShouldFail=false`, y exactamente un `Warnings` que menciona
+  semgrep y "se ignora" (`TestRun_SemgrepFlagIgnored`).
+- `cfg.Scanners.Semgrep=false` → `Warnings` vacío (`TestRun_SemgrepFalseNoWarnings`).
 - `cfg.Enforce=true` con un hallazgo que supera el umbral → `Result.ShouldFail` y
   `Result.Reason` coinciden con lo que devuelve `policy.ShouldFail` directamente.
 - `cfg.Enforce=true` con hallazgos por debajo del umbral → `ShouldFail=false`
