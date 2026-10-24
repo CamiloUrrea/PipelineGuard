@@ -1,8 +1,10 @@
 package report
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -136,4 +138,94 @@ func TestGenerateMarkdown_PipeInFieldsIsEscaped(t *testing.T) {
 	assert.Equal(t, 6, countUnescapedPipes(header))
 	assert.Equal(t, countUnescapedPipes(header), countUnescapedPipes(row),
 		"a '|' inside a field must not add columns to the row: %q", row)
+}
+
+// detailRows returns the detail-table rows of a generated report (5 columns,
+// excluding the header and the separator line), in output order.
+func detailRows(out string) []string {
+	var rows []string
+	for _, line := range strings.Split(out, "\n") {
+		if countUnescapedPipes(line) == 6 &&
+			!strings.HasPrefix(line, "| Severidad |") && !strings.HasPrefix(line, "|---") {
+			rows = append(rows, line)
+		}
+	}
+	return rows
+}
+
+// manyFindings returns n CRITICAL findings with distinct, sortable file names.
+func manyFindings(n int, message string) []parsers.Finding {
+	findings := make([]parsers.Finding, n)
+	for i := range findings {
+		findings[i] = parsers.Finding{
+			Tool: "gitleaks", Severity: "CRITICAL",
+			File: fmt.Sprintf("f%04d.py", i), Line: 1, Rule: "r", Message: message,
+		}
+	}
+	return findings
+}
+
+func TestGenerateMarkdown_NoFindingsNoTruncationNotice(t *testing.T) {
+	out := GenerateMarkdown(nil, 0, map[string]int{})
+
+	assert.Empty(t, detailRows(out))
+	assert.NotContains(t, out, "se omitieron")
+}
+
+func TestGenerateMarkdown_ExactlyMaxDetailRowsNotTruncated(t *testing.T) {
+	out := GenerateMarkdown(manyFindings(maxDetailRows, "m"), 0, map[string]int{"CRITICAL": maxDetailRows})
+
+	assert.Len(t, detailRows(out), maxDetailRows)
+	assert.NotContains(t, out, "se omitieron")
+}
+
+func TestGenerateMarkdown_OverMaxDetailRowsOmitsLeastSevere(t *testing.T) {
+	// The single LOW finding comes first in the input, but after sorting it is
+	// the least severe row, so it is the one left out.
+	findings := append([]parsers.Finding{
+		{Tool: "trivy", Severity: "LOW", File: "a.mod", Line: 0, Rule: "CVE-LOW", Message: "low"},
+	}, manyFindings(maxDetailRows, "m")...)
+	out := GenerateMarkdown(findings, 0, map[string]int{"CRITICAL": maxDetailRows, "LOW": 1})
+
+	rows := detailRows(out)
+	assert.Len(t, rows, maxDetailRows)
+	assert.NotContains(t, out, "CVE-LOW", "the least severe finding must be the one omitted")
+	for _, r := range rows {
+		assert.True(t, strings.HasPrefix(r, "| CRITICAL |"), "unexpected row kept: %q", r)
+	}
+	// Sort within a severity (by file) is preserved after truncating.
+	assert.True(t, strings.HasPrefix(rows[0], "| CRITICAL | gitleaks | f0000.py:1 |"))
+	assert.True(t, strings.HasPrefix(rows[len(rows)-1], fmt.Sprintf("| CRITICAL | gitleaks | f%04d.py:1 |", maxDetailRows-1)))
+
+	assert.Contains(t, out, fmt.Sprintf("Se muestran %d de %d hallazgos", maxDetailRows, maxDetailRows+1))
+	assert.Contains(t, out, "se omitieron 1 ")
+	assert.Contains(t, out, "**Security**")
+	assert.Contains(t, out, "SARIF")
+}
+
+func TestGenerateMarkdown_HugeMessagesTriggerSafetyNet(t *testing.T) {
+	// 10 rows of ~10,000 characters each: under maxDetailRows, but far over
+	// maxMarkdownChars, so the safety net has to drop rows.
+	findings := append(manyFindings(9, strings.Repeat("x", 10000)),
+		parsers.Finding{Tool: "trivy", Severity: "HIGH", File: "go.sum", Line: 0, Rule: "CVE-HIGH", Message: strings.Repeat("y", 10000)})
+	out := GenerateMarkdown(findings, 0, map[string]int{"CRITICAL": 9, "HIGH": 1})
+
+	assert.LessOrEqual(t, utf8.RuneCountInString(out), maxMarkdownChars)
+	rows := detailRows(out)
+	require.NotEmpty(t, rows)
+	assert.Less(t, len(rows), len(findings))
+	assert.NotContains(t, out, "CVE-HIGH", "the HIGH row sorts last, so it is dropped first")
+	assert.Contains(t, out, fmt.Sprintf("Se muestran %d de %d hallazgos", len(rows), len(findings)))
+	assert.Contains(t, out, fmt.Sprintf("se omitieron %d ", len(findings)-len(rows)))
+}
+
+func TestGenerateMarkdown_LimitCountsCharactersNotBytes(t *testing.T) {
+	// 5 × 10,000 "é" = ~50,000 characters but ~100,000 bytes: it fits in
+	// characters, so nothing may be dropped.
+	out := GenerateMarkdown(manyFindings(5, strings.Repeat("é", 10000)), 0, map[string]int{"CRITICAL": 5})
+
+	assert.Greater(t, len(out), maxMarkdownChars, "test premise: the report is over the limit in bytes")
+	assert.LessOrEqual(t, utf8.RuneCountInString(out), maxMarkdownChars)
+	assert.Len(t, detailRows(out), 5)
+	assert.NotContains(t, out, "se omitieron")
 }

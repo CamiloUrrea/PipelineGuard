@@ -7,9 +7,20 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"pipelineguard/internal/parsers"
 )
+
+// maxDetailRows caps the detail table. Rows are sorted by severity first, so
+// whatever is left out is the least severe. The SARIF is never truncated.
+const maxDetailRows = 100
+
+// maxMarkdownChars is the safety net below GitHub's 65,536-character limit for
+// a comment body: if the capped table is still too long (very long messages),
+// rows are dropped until it fits. It counts characters (runes), not bytes,
+// because that is how GitHub measures the limit.
+const maxMarkdownChars = 60000
 
 // severityDisplayOrder is the fixed order severities are presented in, both in
 // the summary table and the detail table. This is a presentation concern only
@@ -43,6 +54,9 @@ func escapeTableCell(s string) string {
 //   - Otherwise: a detail table sorted by severity (severityDisplayOrder) and,
 //     within a severity, by file name. Every text cell goes through
 //     escapeTableCell so a "|" inside a finding cannot break the table.
+//   - The detail table lists at most maxDetailRows rows and the whole report
+//     stays within maxMarkdownChars; when rows are omitted, a notice says how
+//     many and points to the Security tab / SARIF for the full list.
 func GenerateMarkdown(findings []parsers.Finding, score int, countsBySeverity map[string]int) string {
 	var b strings.Builder
 
@@ -73,13 +87,46 @@ func GenerateMarkdown(findings []parsers.Finding, score int, countsBySeverity ma
 		return sorted[i].File < sorted[j].File
 	})
 
-	b.WriteString("\n| Severidad | Herramienta | Archivo:Línea | Regla | Mensaje |\n")
-	b.WriteString("|---|---|---|---|---|\n")
-	for _, f := range sorted {
-		fmt.Fprintf(&b, "| %s | %s | %s:%d | %s | %s |\n",
+	rows := make([]string, len(sorted))
+	for i, f := range sorted {
+		rows[i] = fmt.Sprintf("| %s | %s | %s:%d | %s | %s |\n",
 			escapeTableCell(f.Severity), escapeTableCell(f.Tool), escapeTableCell(f.File),
 			f.Line, escapeTableCell(f.Rule), escapeTableCell(f.Message))
 	}
 
+	const tableHeader = "\n| Severidad | Herramienta | Archivo:Línea | Regla | Mensaje |\n|---|---|---|---|---|\n"
+
+	// Keep at most maxDetailRows, then drop rows from the end (least severe)
+	// until the whole comment fits in maxMarkdownChars.
+	shown := min(len(rows), maxDetailRows)
+	length := utf8.RuneCountInString(b.String()) + utf8.RuneCountInString(tableHeader)
+	for _, r := range rows[:shown] {
+		length += utf8.RuneCountInString(r)
+	}
+	for shown > 0 && length+utf8.RuneCountInString(truncationNotice(shown, len(rows))) > maxMarkdownChars {
+		shown--
+		length -= utf8.RuneCountInString(rows[shown])
+	}
+
+	if shown > 0 {
+		b.WriteString(tableHeader)
+		for _, r := range rows[:shown] {
+			b.WriteString(r)
+		}
+	}
+	b.WriteString(truncationNotice(shown, len(rows)))
+
 	return b.String()
+}
+
+// truncationNotice is the line appended below the detail table when only shown
+// of total findings are listed; it is empty when nothing was omitted.
+func truncationNotice(shown, total int) string {
+	if shown >= total {
+		return ""
+	}
+	return fmt.Sprintf("\n> ⚠️ Se muestran %d de %d hallazgos (los de mayor severidad); se omitieron %d "+
+		"para no exceder el límite de tamaño de los comentarios de GitHub. "+
+		"El detalle completo está en la pestaña **Security** del repositorio y en el archivo SARIF.\n",
+		shown, total, total-shown)
 }
