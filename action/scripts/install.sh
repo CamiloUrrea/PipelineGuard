@@ -129,19 +129,27 @@ fetch_releases_json() {
 
 # resolve_version turns the requested version into a real release tag.
 #   resolve_version <requested>
-#   - A full version (e.g. v0.1.0) is printed unchanged; the API is NOT called.
+#   - A full version (^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$, e.g. v1.1.0 or
+#     the pre-release v1.1.0-rc.1) is printed unchanged; the API is NOT called.
 #   - A bare major (^v[0-9]+$, e.g. v1) is not a release of its own: the highest
 #     clean release tag <major>.X.Y from the Releases API is printed instead
 #     (sort -V). Pre-releases (v1.1.0-rc.1) never match. If nothing matches, or
 #     the API call fails, it errors out — never a guessed tag whose download URL
 #     is known to 404.
+#   - Anything else (empty, a branch name like main, a commit SHA) errors out:
+#     the action may be pinned to such a ref (action.yml falls back to
+#     github.action_ref), but no binary release can be inferred from it.
 # The tag_name values are pulled out with grep/sed on purpose: install.sh does
 # not depend on jq (only comment.sh does), and must keep it that way.
 resolve_version() {
 	local requested="$1"
-	if [[ ! "$requested" =~ ^v[0-9]+$ ]]; then
+	if [[ "$requested" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
 		echo "$requested"
 		return 0
+	fi
+	if [[ ! "$requested" =~ ^v[0-9]+$ ]]; then
+		echo "install.sh: cannot infer the binary version from '${requested}'; pass the action's \`version:\` input (e.g. 'v1' or 'v1.1.0')" >&2
+		return 1
 	fi
 
 	local releases_json
@@ -184,12 +192,10 @@ extract_binary() {
 # its directory to $GITHUB_PATH so later workflow steps can call `pipelineguard`.
 #   install_pipelineguard <version>   (keeps the leading 'v': v1.2.3, or a bare
 #                                      major like v1, see resolve_version)
+# An empty or unusable <version> is rejected by resolve_version, whose message
+# points at the action's `version:` input.
 install_pipelineguard() {
 	local version="${1:-}"
-	if [[ -z "$version" ]]; then
-		echo "install.sh: usage: install.sh <version>  (e.g. install.sh v1.2.3, or a bare major: install.sh v1)" >&2
-		return 1
-	fi
 
 	require_cmd curl
 

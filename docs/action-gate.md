@@ -1,10 +1,18 @@
 # Enforcement final (`action/scripts/gate.sh`)
 
-`action/scripts/gate.sh` es el **quinto y último step** de la composite action
-(`action/action.yml`). Es el único lugar donde el resultado de `pipelineguard`
-puede hacer fallar el job completo — todos los steps anteriores (instalar, correr,
-subir SARIF, comentar el PR) corren siempre, sin importar el veredicto (ver
+`action/scripts/gate.sh` es el **último step** de la composite action
+(`action/action.yml`): el quinto hasta v1.0.x y el **séptimo** desde v1.1.0, tras
+*Add report to job summary* y *Warn about skipped integrations* (Bloque 23). Es
+el único lugar donde el resultado de `pipelineguard` puede hacer fallar el job
+completo — todos los steps anteriores (instalar, correr, subir SARIF, comentar el
+PR, resumen del job, avisos) corren sin importar el veredicto (ver
 `docs/action-run.md` y `docs/action.md`).
+
+Desde v1.1.0, el gate es además lo **único** que decide el resultado del job en
+el camino normal: la subida del SARIF y el comentario del PR tienen
+`continue-on-error: true`, así que si fallan (PRs desde forks, repos privados
+sin GitHub Advanced Security) solo generan un `::warning`. `gate.sh` no cambió en
+el Bloque 23.
 
 Lee `EXIT_CODE`, que la Action puebla desde `steps.run.outputs.exit-code` (el
 output que `run.sh` escribió en el Bloque 13), y decide qué hacer.
@@ -33,7 +41,7 @@ Si falta el binario (porque `install.sh` falló, o porque `run.sh` abortó con
 `EXIT_CODE` **vacío**, cae en la rama `*)` y sale con `exit 1` y el mensaje de
 *bug de wiring de la Action*. El job termina en rojo, que es lo correcto, pero
 la causa real está en el primer step fallido (*Install* o *Run*), no en el
-wiring. Ver "Si falta el binario: fallo en cascada" en `docs/action.md`.
+wiring. Ver "Si falta el binario" en `docs/action.md`.
 
 Fuera de ese caso de binario ausente, que `gate.sh` reciba algo distinto a esos
 tres valores (vacío, `"abc"`, o incluso un número que no sea `0`/`1`/`2`) solo
@@ -70,9 +78,10 @@ simplemente cae en la rama `*)` sin que bash intente interpretarlo como número.
   run: bash "${GITHUB_ACTION_PATH}/scripts/gate.sh"
 ```
 
-- **`if: always()`** — corre aunque un step anterior (subida de SARIF, comentario
-  del PR) haya fallado de verdad, para que el job siempre termine con un
-  resultado explícito relacionado con el análisis de seguridad.
+- **`if: always()`** — corre aunque un step anterior haya fallado (la
+  instalación, o en `v1.0.x` también la subida de SARIF o el comentario del PR),
+  para que el job siempre termine con un resultado explícito relacionado con el
+  análisis de seguridad.
 - **`env:` en vez de interpolar `${{ }}` en `run:`** — mismo patrón que el resto
   de la Action (ver `docs/action.md`): el valor pasa por una variable de entorno,
   no se pega directo en el cuerpo del script.

@@ -70,8 +70,9 @@ guardar. En ese caso `run.sh` **sí** termina de inmediato con código ≠ 0 y u
 mensaje claro (`pipelineguard is not on PATH — the install step must run first`) —
 es un fallo duro de infraestructura de la Action, no del análisis de seguridad.
 Como `run.sh` no escribe `exit-code`, los steps siguientes con `if: always()`
-también fallan en cascada (SARIF, comentario, gate). Ver "Si falta el binario:
-fallo en cascada" en `docs/action.md`. (Si es `install.sh` el que falla con
+también fallan (SARIF y comentario, que desde v1.1.0 solo generan un aviso por
+su `continue-on-error`, y el gate, que sí pone el job en rojo). Ver "Si falta el
+binario" en `docs/action.md`. (Si es `install.sh` el que falla con
 error, este step ni siquiera corre: GitHub lo omite.)
 
 ## Correr shellcheck y bats

@@ -9,9 +9,12 @@ branding:
 inputs:
   version:
     description: >-
-      Tag de release del binario de PipelineGuard a instalar (p. ej. "v1", "v1.2.3").
+      Tag de release del binario de PipelineGuard a instalar (p. ej. "v1",
+      "v1.2.3"). Vacío (default) = sigue a la versión de la Action: con @v1
+      instala el último 1.x; con @v1.1.0, exactamente v1.1.0. Si la Action se
+      fija a una rama o a un SHA, hay que indicar `version:` explícitamente.
     required: false
-    default: "v1"
+    default: ""
   config-path:
     description: "Ruta al archivo de configuración .pipelineguard.yml."
     required: false
@@ -36,10 +39,13 @@ outputs:
 runs:
   using: composite
   steps:
+    # github.action_ref is the ref the caller pinned (v1, v1.1.0, a branch or a
+    # SHA). GitHub documents that in composite actions it must be read through
+    # env:, never inside run:. install.sh rejects refs it cannot map to a release.
     - name: Install pipelineguard
       shell: bash
       env:
-        PIPELINEGUARD_VERSION: ${{ inputs.version }}
+        PIPELINEGUARD_VERSION: ${{ inputs.version || github.action_ref }}
         GITHUB_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh" "${PIPELINEGUARD_VERSION}"
 
@@ -53,20 +59,51 @@ runs:
 
     # ${{ }} is appropriate here: this value is a declarative input to another
     # action, not interpolated into a bash `run:` — no shell-injection surface.
+    # continue-on-error: an optional integration (forks get a read-only token;
+    # private repos without GitHub Advanced Security have no code scanning).
+    # Only the gate decides the job result.
     - name: Upload SARIF results
+      id: sarif
       if: always()
+      continue-on-error: true
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ inputs.sarif-output }}
 
     - name: Post or update PR comment
+      id: comment
       if: always() && github.event_name == 'pull_request'
+      continue-on-error: true
       shell: bash
       env:
         REPORT_PATH: ${{ steps.run.outputs.report-path }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GH_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/comment.sh"
+
+    - name: Add report to job summary
+      if: always()
+      shell: bash
+      env:
+        REPORT_PATH: ${{ steps.run.outputs.report-path }}
+      run: |
+        if [[ -n "${REPORT_PATH:-}" && -f "$REPORT_PATH" ]]; then
+          cat "$REPORT_PATH" >>"$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Warn about skipped integrations
+      if: always() && (steps.sarif.outcome == 'failure' || steps.comment.outcome == 'failure')
+      shell: bash
+      env:
+        SARIF_OUTCOME: ${{ steps.sarif.outcome }}
+        COMMENT_OUTCOME: ${{ steps.comment.outcome }}
+      run: |
+        if [[ "$SARIF_OUTCOME" == "failure" ]]; then
+          echo "::warning title=PipelineGuard::No se pudo subir el SARIF a la pestaña Security. Causa probable: token de solo lectura (PR desde un fork) o repo privado sin GitHub Advanced Security. El resultado lo decide el gate; el reporte está en el resumen del job."
+        fi
+        if [[ "$COMMENT_OUTCOME" == "failure" ]]; then
+          echo "::warning title=PipelineGuard::No se pudo publicar el comentario en el PR. Causa probable: token de solo lectura (PR desde un fork) o falta 'pull-requests: write'. El resultado lo decide el gate; el reporte está en el resumen del job."
+        fi
 
     - name: Enforce PipelineGuard result
       if: always()

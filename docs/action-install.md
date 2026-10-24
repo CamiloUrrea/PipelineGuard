@@ -13,7 +13,10 @@ script ya corrió de verdad en un workflow real, instalando la release publicada
 ## Flujo del script
 
 Ejecutado como `install.sh <version>` (p. ej. `install.sh v1.2.3`, o un major
-desnudo como `install.sh v1`, que es el default del input `version`):
+desnudo como `install.sh v1`). Desde v1.1.0, la Action le pasa
+`inputs.version || github.action_ref`, así que con el input vacío recibe el ref
+con el que se fijó la Action (`v1`, `v1.1.0`, o una rama/SHA que rechaza; ver
+`docs/action.md`, "Qué versión del binario se instala"):
 
 1. `require_cmd curl` — falla ruidoso si `curl` no está disponible.
 2. `resolve_version <version>` convierte lo pedido en un **tag de release real**
@@ -48,8 +51,16 @@ existe en git (lo mueve `release.yml`, ver `docs/ci-cd.md`) para que
 resolve_version <requested>
 ```
 
-- **Versión completa** (cualquier cosa que no sea `^v[0-9]+$`, p. ej. `v0.1.0`)
-  → se imprime **tal cual**, sin llamar a la API.
+- **Versión completa** (`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`, p. ej.
+  `v0.1.0`, `v1.1.0`, o la pre-release `v1.1.0-rc.1`) → se imprime **tal cual**,
+  sin llamar a la API. (Hasta el Bloque 22, *cualquier* valor que no fuera
+  `^v[0-9]+$` se devolvía tal cual, incluso uno vacío o una rama.)
+- **Cualquier otro valor** (vacío, una rama como `main`, un SHA de commit) →
+  **falla** sin llamar a la API, con:
+  `install.sh: cannot infer the binary version from '<valor>'; pass the action's \`version:\` input (e.g. 'v1' or 'v1.1.0')`.
+  Desde el Bloque 23 esto cubre también el caso de `install.sh` sin argumento,
+  que antes tenía su propio mensaje de uso. Ocurre, por ejemplo, con
+  `uses: …/action@main` sin input `version:`.
 - **Major desnudo** (`^v[0-9]+$`, p. ej. `v1`):
   1. Consulta `https://api.github.com/repos/CamiloUrrea/PipelineGuard/releases?per_page=100`
      con `curl -fsSL` (`fetch_releases_json`). `per_page=100` es el máximo de la
@@ -168,14 +179,23 @@ Instalación de las herramientas (si faltan):
   - `v0.1.0` → se devuelve igual, y el log del spy confirma que `curl` **no**
     se llamó.
   - Con `GITHUB_TOKEN` seteado se envía `Authorization: Bearer …`.
+  - Bloque 23: `v1.1.0` y la pre-release `v1.1.0-rc.1` → se devuelven igual, sin
+    llamar a `curl`; `v1` sigue resolviéndose vía API (`v1.0.0`, `v1.1.0` →
+    `v1.1.0`); vacío, `main` y un SHA de 40 hex → fallan con el mensaje que
+    menciona `` `version:` ``, sin llamar a `curl`.
 - Flujo completo (`bash install.sh v1`, como proceso propio con su `set -e`,
   igual que en la Action):
   - La descarga usa `releases/download/v1.2.3/pipelineguard_1.2.3_…`, nunca
     `releases/download/v1/`.
   - Sin release que coincida → falla **antes** de cualquier descarga.
+  - `bash install.sh ""` → falla antes de cualquier llamada a `curl`, con el
+    mensaje que menciona `` `version:` `` (Bloque 23).
 
 El "camino feliz" completo (descarga real + extracción) **no** se testea con
 bats: requiere una release publicada y red. Se verificó a mano, corriendo la
-Action real contra la release `v0.1.0`. La resolución de `v1` contra la API
-real (`resolve_version`) solo está cubierta por los tests con `curl` falso; su
-primera ejecución real será con la release `v1.0.0`.
+Action real contra la release `v0.1.0` y, con `action@v1`, contra `v1.0.0`; esa
+corrida también ejercitó la resolución de `v1` contra la API real. Lo nuevo del
+Bloque 23 (versión desde `github.action_ref`, rechazo de ramas/SHA) solo está
+cubierto por bats; su primera corrida real será el dogfooding
+(`self-scan.yml`, que pasa `version: v1`) y, para `github.action_ref`, el primer
+uso de `@v1.1.0`.

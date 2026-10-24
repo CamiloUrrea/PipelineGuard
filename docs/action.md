@@ -15,11 +15,26 @@ con una línea:
 > de verdad** en un workflow real, contra un Pull Request real en
 > `pipelineguard-demo-vulnerable-app`, con la release `v0.1.0` publicada. Esa
 > validación end-to-end encontró el bug de `-f` vs `-F` en `gh api` (ver
-> `docs/action-comment.md`).
+> `docs/action-comment.md`). Se repitió con `v1.0.0` (`action@v1`, ver
+> "Estado del proyecto" en el `README.md`). Los cambios del Bloque 23 todavía no
+> corrieron en GitHub (ver el estado de verificación más abajo).
 
-**Versión completa.** Con el Bloque 16 (`gate.sh`) `action.yml` llega a su forma
-final: los **5 steps** descritos abajo son todos los que tiene la composite
-action. No queda ningún step pendiente por añadir en un bloque futuro.
+**Steps.** Con el Bloque 16 (`gate.sh`) la Action tenía 5 steps. El Bloque 23
+(desde v1.1.0) agrega 2 más, *Add report to job summary* y *Warn about skipped
+integrations*, y marca la subida del SARIF y el comentario del PR como
+integraciones **opcionales** (`continue-on-error: true`): ahora son **7 steps**,
+y el gate sigue siendo el último y el único que decide el resultado del job.
+
+> **Estado de verificación (Bloque 23).** Validado localmente: `action.yml`
+> como YAML; los dos `run:` nuevos extraídos y pasados por shellcheck y
+> ejecutados a mano con variables de prueba; y actionlint sobre
+> `.github/workflows/self-scan.yml`, que lee los inputs de `./action`. Todavía
+> **no** corrió en GitHub. La documentación oficial ("Metadata syntax for GitHub
+> Actions") lista `continue-on-error` e `id` entre las claves de
+> `runs.steps[*]` de una composite action, pero no dice explícitamente que
+> `continue-on-error` aplique a los steps con `uses:` (el de upload-sarif). Eso
+> lo confirmará la primera corrida real del dogfooding (`self-scan.yml`, ver
+> `docs/ci-cd.md`).
 
 ## Permisos requeridos en el workflow que la usa
 
@@ -39,7 +54,7 @@ responsabilidad del workflow llamante.
 
 | Input          | Default                       | Descripción |
 |----------------|-------------------------------|-------------|
-| `version`      | `v1`                          | Tag de release del binario a instalar (`v1`, `v1.2.3`, …). Se pasa a `install.sh`. |
+| `version`      | `""` (vacío; `v1` hasta v1.0.x) | Tag de release del binario a instalar (`v1`, `v1.2.3`, `v1.1.0-rc.1`, …). **Vacío** = sigue a la versión de la Action: el step 1 pasa `inputs.version \|\| github.action_ref` a `install.sh`. Con `@v1` → último `1.x`; con `@v1.1.0` → exactamente `v1.1.0`. Con una rama o un SHA hay que pasar `version:` explícito, o `install.sh` falla pidiéndolo. Ver "Qué versión del binario se instala". |
 | `config-path`  | `.pipelineguard.yml`          | Ruta al archivo de configuración. Se pasa a `run.sh` como `CONFIG_PATH`. |
 | `sarif-output` | `pipelineguard-results.sarif` | Ruta del reporte SARIF. Se pasa a `run.sh` como `SARIF_OUTPUT`. |
 
@@ -50,8 +65,30 @@ responsabilidad del workflow llamante.
 | `exit-code`   | `steps.run.outputs.exit-code`       | Código de salida de `pipelineguard`: `0` OK · `1` violación de seguridad real · `2` fallo de la herramienta. **El step no falla por `1` ni `2`** — ver `docs/action-run.md`. |
 | `report-path` | `steps.run.outputs.report-path`     | Ruta del reporte Markdown generado (`pipelineguard-report.md`). |
 
-El step 5 (`Enforce PipelineGuard result`, `action/scripts/gate.sh`) lee
+El step 7 (`Enforce PipelineGuard result`, `action/scripts/gate.sh`) lee
 `exit-code` y decide si el job completo falla — ver `docs/action-gate.md`.
+
+## Qué versión del binario se instala (desde v1.1.0)
+
+El step 1 calcula `PIPELINEGUARD_VERSION: ${{ inputs.version || github.action_ref }}`:
+si el input `version` viene vacío (el default), usa `github.action_ref`, el ref
+con el que el workflow llamante fijó la Action. La documentación oficial de
+contextos dice que, en composite actions, `github.action_ref` hay que leerlo
+desde `env:` (no dentro de `run:`); así se hace aquí. `install.sh`
+(`resolve_version`, ver `docs/action-install.md`) decide qué hacer con el valor:
+
+| Valor que recibe `install.sh` | Ejemplo de `uses:` | Binario instalado |
+|---|---|---|
+| `vX.Y.Z` o `vX.Y.Z-<pre>` | `…/action@v1.1.0` | Exactamente ese tag, sin consultar la API |
+| `vN` | `…/action@v1` | El release `vN.X.Y` limpio más alto (API de Releases) |
+| Otra cosa (vacío, rama, SHA) | `…/action@main`, `…/action@<sha>` | **Ninguno**: falla con `cannot infer the binary version from '<valor>'; pass the action's \`version:\` input (e.g. 'v1' or 'v1.1.0')` |
+
+Con `uses: ./action` (una Action local, como en `self-scan.yml`) no hay un ref de
+release del que inferir la versión, por eso ese workflow pasa `version: v1`.
+
+> **Solo desde v1.1.0.** En `v1.0.x` el default de `version` es `v1` y
+> `github.action_ref` no se usa: fijar `@v1.0.0` sigue instalando el último
+> `1.x`. Para fijar el binario en esas versiones hay que pasar `version:`.
 
 ## Steps
 
@@ -62,7 +99,7 @@ runs:
     - name: Install pipelineguard
       shell: bash
       env:
-        PIPELINEGUARD_VERSION: ${{ inputs.version }}
+        PIPELINEGUARD_VERSION: ${{ inputs.version || github.action_ref }}
         GITHUB_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh" "${PIPELINEGUARD_VERSION}"
 
@@ -75,19 +112,43 @@ runs:
       run: bash "${GITHUB_ACTION_PATH}/scripts/run.sh"
 
     - name: Upload SARIF results
+      id: sarif
       if: always()
+      continue-on-error: true
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ inputs.sarif-output }}
 
     - name: Post or update PR comment
+      id: comment
       if: always() && github.event_name == 'pull_request'
+      continue-on-error: true
       shell: bash
       env:
         REPORT_PATH: ${{ steps.run.outputs.report-path }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GH_TOKEN: ${{ github.token }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/comment.sh"
+
+    - name: Add report to job summary
+      if: always()
+      shell: bash
+      env:
+        REPORT_PATH: ${{ steps.run.outputs.report-path }}
+      run: |
+        if [[ -n "${REPORT_PATH:-}" && -f "$REPORT_PATH" ]]; then
+          cat "$REPORT_PATH" >>"$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Warn about skipped integrations
+      if: always() && (steps.sarif.outcome == 'failure' || steps.comment.outcome == 'failure')
+      shell: bash
+      env:
+        SARIF_OUTCOME: ${{ steps.sarif.outcome }}
+        COMMENT_OUTCOME: ${{ steps.comment.outcome }}
+      run: |
+        # one ::warning title=PipelineGuard::… per failed integration
+        # (full text in action/action.yml)
 
     - name: Enforce PipelineGuard result
       if: always()
@@ -97,38 +158,60 @@ runs:
       run: bash "${GITHUB_ACTION_PATH}/scripts/gate.sh"
 ```
 
-1. **Install pipelineguard** — corre `scripts/install.sh` con el input `version`
-   como argumento posicional. `install.sh` resuelve un major desnudo (`v1`, el
-   default) a la release real más alta de esa serie (`resolve_version`, que
-   consulta la API de Releases autenticándose con el `GITHUB_TOKEN` que este step
-   le pasa). Luego detecta OS/arch, descarga el archive y `checksums.txt` desde
+1. **Install pipelineguard** — corre `scripts/install.sh` con
+   `inputs.version || github.action_ref` como argumento posicional (ver "Qué
+   versión del binario se instala"). `install.sh` usa tal cual una versión
+   completa, resuelve un major desnudo (`v1`) a la release real más alta de esa
+   serie (`resolve_version`, que consulta la API de Releases autenticándose con el
+   `GITHUB_TOKEN` que este step le pasa) y rechaza cualquier otro valor. Luego detecta OS/arch, descarga el archive y `checksums.txt` desde
    GitHub Releases, **verifica el checksum**, extrae el binario y lo añade a
    `$GITHUB_PATH` (ver `docs/action-install.md`).
 2. **Run pipelineguard** (`id: run`) — corre `scripts/run.sh`, que ejecuta el
    binario, manda su Markdown a `pipelineguard-report.md`, y escribe
    `exit-code` / `report-path` en `$GITHUB_OUTPUT`. **Nunca falla el step** por un
    exit code `1`/`2` del binario; sí falla si el binario no está en PATH.
-3. **Upload SARIF results** — sube el archivo SARIF a GitHub con la action oficial
-   `github/codeql-action/upload-sarif`. `if: always()` para que corra aunque un
-   step anterior haya fallado de verdad. Ver la sección siguiente.
-4. **Post or update PR comment** — corre `scripts/comment.sh`, que publica el
-   reporte Markdown como comentario del PR, **actualizando** el comentario
-   anterior de PipelineGuard en vez de crear uno nuevo. Restringido a eventos
-   `pull_request`. Ver `docs/action-comment.md`.
-5. **Enforce PipelineGuard result** — corre `scripts/gate.sh`, que lee
+3. **Upload SARIF results** (`id: sarif`) — sube el archivo SARIF a GitHub con
+   la action oficial `github/codeql-action/upload-sarif`. `if: always()` para que
+   corra aunque un step anterior haya fallado de verdad. `continue-on-error: true`
+   (desde v1.1.0): es una integración **opcional**; si falla, el step queda con
+   `outcome: failure` pero no pone el job en rojo. Ver la sección siguiente.
+4. **Post or update PR comment** (`id: comment`) — corre `scripts/comment.sh`,
+   que publica el reporte Markdown como comentario del PR, **actualizando** el
+   comentario anterior de PipelineGuard en vez de crear uno nuevo. Restringido a
+   eventos `pull_request`. También `continue-on-error: true` (desde v1.1.0). Ver
+   `docs/action-comment.md`.
+5. **Add report to job summary** (desde v1.1.0) — `if: always()`. Si
+   `REPORT_PATH` (`steps.run.outputs.report-path`, vía `env:`) no está vacío y el
+   archivo existe, hace `cat "$REPORT_PATH" >>"$GITHUB_STEP_SUMMARY"`: el reporte
+   queda visible en la página del run aunque el comentario no se haya podido
+   publicar (o en un `push`, donde no hay PR). Si no hay reporte (binario
+   ausente), no hace nada y no falla.
+6. **Warn about skipped integrations** (desde v1.1.0) — corre solo si
+   `steps.sarif.outcome == 'failure' || steps.comment.outcome == 'failure'`
+   (`outcome` es el resultado **antes** de aplicar `continue-on-error`; la
+   `conclusion` de esos steps sería `success`). Emite un
+   `::warning title=PipelineGuard::…` por cada integración fallida, con la causa
+   probable: token de solo lectura en PRs desde forks, repo privado sin GitHub
+   Advanced Security (SARIF) o falta de `pull-requests: write` (comentario). Los
+   outcomes llegan por `env:` (`SARIF_OUTCOME`, `COMMENT_OUTCOME`), nunca
+   interpolados en el `run:`. Un step que no corrió (p. ej. el comentario en un
+   `push`) tiene `outcome: skipped` y no dispara el aviso.
+7. **Enforce PipelineGuard result** — corre `scripts/gate.sh`, que lee
    `steps.run.outputs.exit-code` y es quien finalmente hace fallar (o no) el job:
    silencio en `0`, `exit 1` en `1` (violación de seguridad real), `exit 2` en `2`
    (fallo de la herramienta), y `exit 1` con mensaje de bug de wiring si el valor
    viene vacío o no es uno de esos tres códigos. `if: always()` para que corra
-   incluso si los steps 3 o 4 fallaron de verdad. Es el **único** step de la
-   Action al que le corresponde decidir el resultado final del job en base al
-   análisis de seguridad. Ver `docs/action-gate.md`.
+   siempre. Es el **último** step y el **único** que decide el resultado final del
+   job: desde v1.1.0, un fallo de los steps 3 o 4 ya no lo decide. Ver
+   `docs/action-gate.md`.
 
 ## Step 3 — Subida de SARIF a GitHub Security
 
 ```yaml
 - name: Upload SARIF results
+  id: sarif
   if: always()
+  continue-on-error: true
   uses: github/codeql-action/upload-sarif@v4
   with:
     sarif_file: ${{ inputs.sarif-output }}
@@ -138,8 +221,8 @@ runs:
 
 `sarif_file` es un **input declarativo de otra action**, no un valor que se
 interpola dentro de un `run:` de bash. No hay superficie de inyección de shell en
-este contexto, así que el patrón `env:` no aporta nada. (Los otros **cuatro**
-steps, 1, 2, 4 y 5, ejecutan bash y **todos** usan `env:`.)
+este contexto, así que el patrón `env:` no aporta nada. (Los otros **seis**
+steps, 1, 2 y 4 a 7, ejecutan bash y **todos** usan `env:`.)
 
 ### Qué pasa en GitHub cuando el SARIF se sube
 
@@ -154,71 +237,81 @@ steps, 1, 2, 4 y 5, ejecutan bash y **todos** usan `env:`.)
 - El *tool name* que se ve en la UI es `PipelineGuard` (viene de
   `runs[].tool.driver.name` en el SARIF).
 
-### Qué pasa si el archivo no existe o está vacío
+### Qué pasa si la subida falla
 
 Investigado en la documentación de `github/codeql-action/upload-sarif`:
 
 - **Archivo inexistente** en la ruta de `sarif_file` → el step **falla** con un
-  error tipo `Path does not exist: <ruta>`. No se traga el error silenciosamente.
+  error tipo `Path does not exist: <ruta>`.
 - **Archivo vacío o SARIF inválido** (no es JSON, o no cumple el schema 2.1.0) →
   el step **falla** en la validación (`Invalid SARIF`, error de parseo JSON).
-- Como el step lleva `if: always()`, corre incluso si no hubo binario (en ese
-  caso **no** se escribió ningún SARIF) y **también** falla por "archivo
-  inexistente". Ver "Si falta el binario: fallo en cascada" abajo.
-- En el **camino normal** esto no ocurre: el binario `pipelineguard` siempre
-  escribe un SARIF **válido** aunque no haya hallazgos (`"results": []`,
-  `"rules": []`, nunca `null` — requisito de `docs/sarif.md`), así que el archivo
-  siempre existe y siempre pasa la validación.
+- **Sin permiso o sin code scanning**: un PR desde un fork recibe un
+  `GITHUB_TOKEN` de solo lectura (sin `security-events: write`), y un repo
+  privado sin GitHub Advanced Security no tiene code scanning: en ambos casos la
+  subida puede fallar.
+- En el **camino normal** el archivo no falla la validación: el binario
+  `pipelineguard` siempre escribe un SARIF **válido** aunque no haya hallazgos
+  (`"results": []`, `"rules": []`, nunca `null` — requisito de `docs/sarif.md`).
+
+**Desde v1.1.0**, por `continue-on-error: true`, cualquiera de esos fallos deja el
+step con `outcome: failure` pero **no** pone el job en rojo: el step 6 emite un
+`::warning` y el reporte queda en el resumen del job (step 5). En `v1.0.x`, el
+fallo de este step hacía fallar el job aunque el escaneo hubiera ido bien.
 
 ### Versión pineada `@v4`
 
 El step usa `github/codeql-action/upload-sarif@v4`, el major vigente (antes
 estaba en `@v3`; se actualizó antes de cortar v1.0.0). Pinear al tag mayor
-flotante sigue la misma convención que el resto del proyecto.
+flotante sigue la misma convención que el resto del proyecto. Desde el Bloque 23,
+Dependabot revisa este `action.yml` cada semana (`.github/dependabot.yml`,
+entrada `github-actions` con `directory: /action`).
 
-## Si falta el binario: fallo en cascada
+## Si falta el binario
 
-Si no hay binario `pipelineguard`, **no** falla un solo step. Por los
-`if: always()` de los steps 3, 4 y 5, fallan varios en cascada. Hay dos variantes:
+Si no hay binario `pipelineguard`, hay dos variantes:
 
-- **`install.sh` falla** (release no encontrada, checksum inválido, descarga
-  rota…): *Install* queda en rojo. *Run pipelineguard* no tiene `if:`, así que
-  GitHub lo **omite** (skipped), no lo marca como fallido.
+- **`install.sh` falla** (release no encontrada, versión no inferible, checksum
+  inválido, descarga rota…): *Install* queda en rojo. *Run pipelineguard* no
+  tiene `if:`, así que GitHub lo **omite** (skipped), no lo marca como fallido.
 - **La instalación "termina" pero el binario no está en PATH**: *Run
   pipelineguard* falla (`run.sh` sale con `exit 1`: `pipelineguard is not on
   PATH — the install step must run first`).
 
-En ambos casos, después:
+En ambos casos, después (comportamiento desde v1.1.0):
 
 | Step | Resultado | Por qué |
 |------|-----------|---------|
-| 3. Upload SARIF | ❌ falla | `if: always()`; no existe el archivo SARIF. |
-| 4. PR comment (solo en `pull_request`) | ❌ falla | `if: always()`; `steps.run.outputs.report-path` viene vacío, `comment.sh` cae al default `pipelineguard-report.md`, que no existe → `report file … not found`. |
-| 5. Enforce | ❌ falla (`exit 1`) | `if: always()`; `EXIT_CODE` vacío → mensaje de **bug de wiring de la Action** (ver `docs/action-gate.md`). |
+| 3. Upload SARIF | `outcome: failure`, no pone el job en rojo | `if: always()`; no existe el archivo SARIF; `continue-on-error: true`. |
+| 4. PR comment (solo en `pull_request`) | `outcome: failure`, no pone el job en rojo | `if: always()`; `report-path` viene vacío, `comment.sh` cae al default `pipelineguard-report.md`, que no existe → `report file … not found`; `continue-on-error: true`. |
+| 5. Job summary | ✅ no hace nada | `REPORT_PATH` vacío o el archivo no existe. |
+| 6. Warn | ⚠️ emite el/los `::warning` | Porque 3 (y 4) fallaron. La "causa probable" que menciona (forks, GHAS) **no** es la real en este caso. |
+| 7. Enforce | ❌ falla (`exit 1`) | `if: always()`; `EXIT_CODE` vacío → mensaje de **bug de wiring de la Action** (ver `docs/action-gate.md`). |
 
-El mensaje de *Enforce* habla de un bug de wiring aunque la causa real sea la
-instalación. El primer step en rojo (*Install* o *Run*) es el que tiene la causa
-real.
+El job termina en rojo (por el gate), que es lo correcto. Ni el aviso del step 6
+ni el mensaje de *Enforce* dan la causa real: está en el primer step en rojo
+(*Install* o *Run*). En `v1.0.x`, los steps 3 y 4 también quedaban en rojo.
 
 ### Detalles de implementación
 
-- **`env:` en vez de interpolar `${{ }}` dentro de `run:`** — los cuatro steps
-  que ejecutan bash (1, 2, 4 y 5) exponen sus valores como variables de entorno
+- **`env:` en vez de interpolar `${{ }}` dentro de `run:`** — los seis steps
+  que ejecutan bash (1, 2 y 4 a 7) exponen sus valores como variables de entorno
   y los scripts las leen desde ahí. Evita el riesgo de inyección de shell de
-  meter expresiones `${{ }}` directamente en el cuerpo de `run:`.
+  meter expresiones `${{ }}` directamente en el cuerpo de `run:`. Eso incluye
+  `github.action_ref` (step 1) y los `steps.<id>.outcome` (step 6).
 - **`${GITHUB_ACTION_PATH}`** — GitHub lo setea a la carpeta de la action
   (`action/`), así que `${GITHUB_ACTION_PATH}/scripts/…` resuelve a los scripts sin
   importar desde qué repo se invoque la action.
 - **`shell: bash`** — obligatorio en composite actions; garantiza bash en Linux,
   macOS y Windows runners.
-- **`if: always()` en los steps 3, 4 y 5** — corren aunque un step anterior
-  falle. En el camino normal `run.sh` termina con `exit 0` y no haría falta, pero
-  se agrega por robustez. El step 4 añade `&& github.event_name == 'pull_request'`
-  porque solo hay un PR al que comentar en ese tipo de evento (ver
-  `docs/action-comment.md`). El step 5 (`gate.sh`) es el que finalmente hace
-  fallar el job por el resultado del análisis de seguridad — necesita `always()`
-  precisamente para poder correr y emitir ese veredicto incluso si los steps 3 o 4
-  fallaron por su cuenta (ver `docs/action-gate.md`).
+- **`if: always()` en los steps 3 a 7** — corren aunque un step anterior falle
+  (el 6, además, solo si falló una integración). El step 4 añade
+  `&& github.event_name == 'pull_request'` porque solo hay un PR al que comentar
+  en ese tipo de evento (ver `docs/action-comment.md`). El step 7 (`gate.sh`) es
+  el que finalmente hace fallar el job por el resultado del análisis de
+  seguridad.
+- **`continue-on-error: true` en los steps 3 y 4** (desde v1.1.0) — son
+  integraciones opcionales: su fallo se reporta (step 6) pero no decide el
+  resultado del job.
 - **`GH_TOKEN: ${{ github.token }}`** — el step 4 usa `gh api`, que lee el token
   de `GH_TOKEN`. Es el `GITHUB_TOKEN` del job; necesita `pull-requests: write`.
 - **`GITHUB_TOKEN: ${{ github.token }}`** en el step 1 — `install.sh` lo usa solo

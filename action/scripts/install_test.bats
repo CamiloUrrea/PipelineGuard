@@ -305,3 +305,79 @@ EOF
 	[[ "$output" == *"no release matching"* ]]
 	! grep -q "releases/download/" "$CURL_CALLS_LOG" || false
 }
+
+# --- resolve_version: what the action can pass since v1.1.0 ------------------
+#
+# action.yml passes `inputs.version || github.action_ref`, so resolve_version
+# may now receive the action's own ref: a full tag, a bare major, or a branch /
+# SHA it cannot turn into a binary release.
+
+@test "resolve_version: full version v1.1.0 is returned as-is, curl never called" {
+	install_fake_curl
+	write_releases_json "v1.2.3"
+
+	run resolve_version "v1.1.0"
+	[ "$status" -eq 0 ]
+	[ "$output" = "v1.1.0" ]
+	[ ! -s "$CURL_CALLS_LOG" ]
+}
+
+@test "resolve_version: pre-release v1.1.0-rc.1 is returned as-is, curl never called" {
+	install_fake_curl
+	write_releases_json "v1.2.3"
+
+	run resolve_version "v1.1.0-rc.1"
+	[ "$status" -eq 0 ]
+	[ "$output" = "v1.1.0-rc.1" ]
+	[ ! -s "$CURL_CALLS_LOG" ]
+}
+
+@test "resolve_version: v1 still resolves through the API" {
+	install_fake_curl
+	write_releases_json "v1.0.0" "v1.1.0"
+
+	run resolve_version "v1"
+	[ "$status" -eq 0 ]
+	[ "${lines[-1]}" = "v1.1.0" ]
+	[ -s "$CURL_CALLS_LOG" ]
+}
+
+@test "resolve_version: empty -> fails, message points at the version: input, curl never called" {
+	install_fake_curl
+
+	run resolve_version ""
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"cannot infer the binary version from ''"* ]]
+	[[ "$output" == *'`version:`'* ]]
+	[ ! -s "$CURL_CALLS_LOG" ]
+}
+
+@test "resolve_version: branch name 'main' -> fails, message points at the version: input" {
+	install_fake_curl
+
+	run resolve_version "main"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"cannot infer the binary version from 'main'"* ]]
+	[[ "$output" == *'`version:`'* ]]
+	[ ! -s "$CURL_CALLS_LOG" ]
+}
+
+@test "resolve_version: 40-hex commit SHA -> fails, message points at the version: input" {
+	install_fake_curl
+	local sha="0123456789abcdef0123456789abcdef01234567"
+
+	run resolve_version "$sha"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"cannot infer the binary version from '${sha}'"* ]]
+	[[ "$output" == *'`version:`'* ]]
+	[ ! -s "$CURL_CALLS_LOG" ]
+}
+
+@test "install.sh '' (script run): fails before any download, message points at the version: input" {
+	install_fake_curl
+
+	run bash "${BATS_TEST_DIRNAME}/install.sh" ""
+	[ "$status" -ne 0 ]
+	[[ "$output" == *'`version:`'* ]]
+	[ ! -s "$CURL_CALLS_LOG" ]
+}
