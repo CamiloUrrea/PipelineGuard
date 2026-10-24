@@ -55,33 +55,36 @@ func runApp(
 ) int {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "pipelineguard: loading config %q: %v\n", cfgPath, err)
+		// Write errors on stderr are ignored on purpose here and below: if
+		// stderr is unwritable there is nothing useful left to do, and the
+		// exit code already reports the failure.
+		_, _ = fmt.Fprintf(stderr, "pipelineguard: loading config %q: %v\n", cfgPath, err)
 		return exitCode(err, false)
 	}
 
 	result, err := runOrchestrator(cfg)
 	if err != nil {
-		fmt.Fprintf(stderr, "pipelineguard: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "pipelineguard: %v\n", err)
 		return exitCode(err, false)
 	}
 
 	// Warnings never go to stdout: that would end up in the PR comment.
 	for _, w := range result.Warnings {
-		fmt.Fprintf(stderr, "pipelineguard: warning: %s\n", w)
+		_, _ = fmt.Fprintf(stderr, "pipelineguard: warning: %s\n", w)
 	}
 
 	if err := writeFile(sarifOutPath, result.SARIF); err != nil {
-		fmt.Fprintf(stderr, "pipelineguard: writing SARIF report to %q: %v\n", sarifOutPath, err)
+		_, _ = fmt.Fprintf(stderr, "pipelineguard: writing SARIF report to %q: %v\n", sarifOutPath, err)
 		return exitCode(err, false)
 	}
 
 	if _, err := fmt.Fprintln(stdout, result.Markdown); err != nil {
-		fmt.Fprintf(stderr, "pipelineguard: writing report to stdout: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "pipelineguard: writing report to stdout: %v\n", err)
 		return exitCode(err, false)
 	}
 
 	if result.ShouldFail {
-		fmt.Fprintf(stderr, "pipelineguard: %s\n", result.Reason)
+		_, _ = fmt.Fprintf(stderr, "pipelineguard: %s\n", result.Reason)
 	}
 
 	return exitCode(nil, result.ShouldFail)
