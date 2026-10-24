@@ -1,0 +1,55 @@
+name: Reporte de bug
+description: Algo no funciona como dice la documentación.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportarlo. **No pegues secretos reales** (tokens, claves, contraseñas) en ningún campo: revisa y redacta los logs antes de enviarlos.
+        Si se trata de una vulnerabilidad de seguridad, no abras un issue: usa el [reporte privado](https://github.com/CamiloUrrea/PipelineGuard/security/advisories/new).
+  - type: input
+    id: action-version
+    attributes:
+      label: Versión de la Action
+      description: El ref que usas en `uses:` y, si lo pasas, el input `version:`.
+      placeholder: "CamiloUrrea/PipelineGuard/action@v1 (version: v1.1.0)"
+    validations:
+      required: true
+  - type: input
+    id: runner
+    attributes:
+      label: Runner
+      description: Sistema y arquitectura del runner.
+      placeholder: "ubuntu-latest (linux/amd64)"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Qué pasó y qué esperabas
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Fragmento del workflow
+      description: El job que usa PipelineGuard, incluidos `permissions:` y los steps de instalación de gitleaks y trivy.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log del job
+      description: Las líneas relevantes de los steps de PipelineGuard. Redacta cualquier valor sensible antes de pegarlo.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: .pipelineguard.yml (si lo usas)
+      render: yaml
+    validations:
+      required: false

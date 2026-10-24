@@ -1,0 +1,29 @@
+name: Propuesta de funcionalidad
+description: Una idea o mejora para PipelineGuard.
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de proponer algo, revisa el roadmap en [docs/ARCHITECTURE.md](https://github.com/CamiloUrrea/PipelineGuard/blob/main/docs/ARCHITECTURE.md): puede que ya esté planeado.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema que resuelve
+      description: Qué necesitas hacer hoy y por qué PipelineGuard no te lo permite.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+      description: Cómo te imaginas que funcione (configuración, salida, comportamiento).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+    validations:
+      required: false

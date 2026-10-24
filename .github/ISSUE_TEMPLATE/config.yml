@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reportar una vulnerabilidad de seguridad
+    url: https://github.com/CamiloUrrea/PipelineGuard/security/advisories/new
+    about: No abras un issue público para vulnerabilidades. Usa el reporte privado de GitHub (ver SECURITY.md).
