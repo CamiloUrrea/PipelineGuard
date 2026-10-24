@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Workflows in .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # The composite action's own action.yml (github/codeql-action/upload-sarif).
+  - package-ecosystem: github-actions
+    directory: /action
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope

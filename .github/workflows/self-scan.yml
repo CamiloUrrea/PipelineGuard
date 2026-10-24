@@ -1,0 +1,51 @@
+name: Self-scan
+
+# Dogfooding: runs PipelineGuard on its own repo. Kept apart from ci.yml because
+# it needs write permissions (PR comment, SARIF upload) that CI does not.
+# `uses: ./action` takes the action scripts from this checkout (the PR's), but
+# `version: v1` installs the latest published binary: this does NOT test the
+# PR's Go code — ci.yml does.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: self-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pipelineguard:
+    name: PipelineGuard on itself
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
+      # The install script comes from trivy's main branch; the trivy version
+      # itself is pinned to v0.72.0.
+      - name: Install trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.72.0
+
+      # No .pipelineguard.yml in this repo: informational mode, findings never
+      # fail the job (a tool failure, exit 2, still does).
+      - name: Run PipelineGuard
+        uses: ./action
+        with:
+          version: v1
