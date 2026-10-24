@@ -33,6 +33,7 @@ func TestRunApp_ConfigLoadErrorReturnsTwoAndSkipsOrchestrator(t *testing.T) {
 		},
 		func(string, []byte) error { return nil },
 		&bytes.Buffer{},
+		&bytes.Buffer{},
 	)
 
 	assert.Equal(t, 2, code)
@@ -52,6 +53,7 @@ func TestRunApp_OrchestratorErrorReturnsTwo(t *testing.T) {
 			writeCalled = true
 			return nil
 		},
+		&bytes.Buffer{},
 		&bytes.Buffer{},
 	)
 
@@ -84,6 +86,7 @@ func TestRunApp_ShouldFailWritesSarifAndReturnsOne(t *testing.T) {
 			return nil
 		},
 		&out,
+		&bytes.Buffer{},
 	)
 
 	assert.Equal(t, 1, code)
@@ -107,6 +110,7 @@ func TestRunApp_SuccessReturnsZeroAndPrintsMarkdown(t *testing.T) {
 		},
 		func(string, []byte) error { return nil },
 		&out,
+		&bytes.Buffer{},
 	)
 
 	assert.Equal(t, 0, code)
@@ -127,6 +131,7 @@ func TestRunApp_WriteFileErrorReturnsTwoEvenOnSuccessfulScan(t *testing.T) {
 		},
 		func(string, []byte) error { return errors.New("no space left on device") },
 		&out,
+		&bytes.Buffer{},
 	)
 
 	assert.Equal(t, 2, code)
@@ -155,6 +160,7 @@ func TestRunApp_StdoutWriteErrorReturnsTwoEvenOnSuccessfulScan(t *testing.T) {
 		},
 		func(string, []byte) error { return nil },
 		failingWriter{},
+		&bytes.Buffer{},
 	)
 
 	assert.Equal(t, 2, code, "a failure to print the report to stdout is a tool error, even if the scan succeeded")
@@ -174,4 +180,26 @@ func TestNewRootCmd_FlagDefaults(t *testing.T) {
 	sarifFlag := cmd.Flags().Lookup("sarif-output")
 	assert.NotNil(t, sarifFlag)
 	assert.Equal(t, "pipelineguard-results.sarif", sarifFlag.DefValue)
+}
+
+func TestRunApp_WarningsGoToStderrNotStdout(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := runApp(
+		"x.yml", "results.sarif",
+		okConfig,
+		func(config.Config) (orchestrator.Result, error) {
+			return orchestrator.Result{
+				Markdown: "## 🛡️ PipelineGuard — Risk Score: 0",
+				SARIF:    []byte("{}"),
+				Warnings: []string{"semgrep aún no está implementado: se ignora"},
+			}, nil
+		},
+		func(string, []byte) error { return nil },
+		&out, &errOut,
+	)
+
+	assert.Equal(t, 0, code, "a warning never changes the exit code")
+	assert.Contains(t, errOut.String(), "pipelineguard: warning: semgrep aún no está implementado: se ignora")
+	assert.NotContains(t, out.String(), "semgrep", "warnings must not leak into the Markdown on stdout")
+	assert.Contains(t, out.String(), "Risk Score: 0")
 }

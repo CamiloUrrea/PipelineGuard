@@ -23,6 +23,9 @@ import (
 // be surfaced loudly — it is never equivalent to "no findings".
 type ScannerFunc func() ([]byte, error)
 
+// semgrepNotImplementedWarning is reported when cfg.Scanners.Semgrep is true.
+const semgrepNotImplementedWarning = "scanners.semgrep está en true, pero semgrep aún no está implementado (roadmap v1.1): se ignora"
+
 // Result is everything a PipelineGuard run produces.
 type Result struct {
 	Findings   []parsers.Finding
@@ -32,6 +35,10 @@ type Result struct {
 	SARIF      []byte
 	ShouldFail bool
 	Reason     string
+	// Warnings are non-fatal notices for the user (e.g. a config option that is
+	// accepted but not implemented). They never change the outcome; the caller
+	// decides where to print them (cmd/pipelineguard sends them to stderr).
+	Warnings []string
 }
 
 // Run executes the enabled scanners and assembles the full Result.
@@ -41,9 +48,15 @@ type Result struct {
 // error, or its output fails to parse, Run returns that error wrapped with
 // context — it never swallows a scan failure as an empty result.
 //
-// cfg.Scanners.Semgrep is ignored entirely in this block (not implemented yet).
+// cfg.Scanners.Semgrep is not implemented yet: setting it to true changes
+// nothing in the result, but adds a notice to Result.Warnings.
 func Run(cfg config.Config, runGitleaks, runTrivy ScannerFunc) (Result, error) {
 	var findings []parsers.Finding
+	var warnings []string
+
+	if cfg.Scanners.Semgrep {
+		warnings = append(warnings, semgrepNotImplementedWarning)
+	}
 
 	if cfg.Scanners.Gitleaks {
 		raw, err := runGitleaks()
@@ -88,5 +101,6 @@ func Run(cfg config.Config, runGitleaks, runTrivy ScannerFunc) (Result, error) {
 		SARIF:      sarifBytes,
 		ShouldFail: shouldFail,
 		Reason:     reason,
+		Warnings:   warnings,
 	}, nil
 }

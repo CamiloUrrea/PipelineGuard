@@ -77,8 +77,11 @@ la herramienta, no un veredicto de seguridad. `--help` y `--version` salen con
   que no debe contener nada más.
 - **stderr** → todos los mensajes de error (`config inválido`, `error de escáner`,
   `error escribiendo SARIF`, `error escribiendo el reporte a stdout`, errores de
-  parseo de flags) y, cuando el build falla (`exit 1`), la razón
-  (`result.Reason`) para que quede en los logs de CI.
+  parseo de flags), los avisos no fatales del orquestador
+  (`result.Warnings`, uno por línea como `pipelineguard: warning: <texto>`; hoy
+  solo el de `scanners.semgrep: true`, ver `docs/orchestrator.md`) y, cuando el
+  build falla (`exit 1`), la razón (`result.Reason`) para que quede en los logs
+  de CI. Un warning **nunca** cambia el exit code.
 
 ## Por qué la lógica está separada de `main()`
 
@@ -86,19 +89,22 @@ la herramienta, no un veredicto de seguridad. `--help` y `--version` salen con
 dos funciones:
 
 - `exitCode(err error, shouldFail bool) int` — pura, sin efectos.
-- `runApp(cfgPath, sarifOutPath string, loadConfig ..., runOrchestrator ..., writeFile ..., stdout io.Writer) int`
+- `runApp(cfgPath, sarifOutPath string, loadConfig ..., runOrchestrator ..., writeFile ..., stdout, stderr io.Writer) int`
   — ejecuta el flujo completo con **todas sus dependencias inyectadas**
-  (cargar config, correr orquestador, escribir archivo, y el `io.Writer` de
-  salida), y devuelve el exit code en vez de llamar a `os.Exit`.
+  (cargar config, correr orquestador, escribir archivo, y los `io.Writer` de
+  stdout y stderr), y devuelve el exit code en vez de llamar a `os.Exit`.
+  (El `stderr` inyectado es del Bloque 22; antes `runApp` escribía directo a
+  `os.Stderr`.)
 
 `main()` y el `RunE` de Cobra son *wiring* mínimo: construyen las
 implementaciones reales (`config.Load`, `realOrchestrator`, un wrapper de
-`os.WriteFile`, `os.Stdout`), llaman a `runApp`, y hacen `os.Exit(code)` con lo
-que devuelva.
+`os.WriteFile`, `os.Stdout`, `os.Stderr`), llaman a `runApp`, y hacen
+`os.Exit(code)` con lo que devuelva. (El error de parseo de flags de `main()`
+sigue yendo directo a `os.Stderr`: ocurre antes de `runApp`.)
 
 Así los tests (`cmd/pipelineguard/main_test.go`) ejercen todo el flujo con
-closures y un `bytes.Buffer` como stdout, sin config real, sin escáneres reales y
-sin tocar el disco:
+closures y `bytes.Buffer` como stdout y stderr, sin config real, sin escáneres
+reales y sin tocar el disco:
 
 - `exitCode`: los 3 casos (`nil`+`false`→0, `nil`+`true`→1, `error`→2).
 - `loadConfig` devuelve error → exit `2`, y el orquestador **no** se invoca
@@ -113,6 +119,9 @@ sin tocar el disco:
 - El `io.Writer` de stdout falla al escribir (p. ej. un pipe roto) → exit `2`
   aunque el escaneo y la escritura del SARIF hayan sido exitosos; el error de
   `fmt.Fprintln` se captura explícitamente en vez de ignorarse.
+- `result.Warnings` no vacío → exit `0` igual, el aviso aparece en el stderr
+  capturado con el prefijo `pipelineguard: warning:` y **no** aparece en stdout,
+  que solo contiene el Markdown (`TestRunApp_WarningsGoToStderrNotStdout`).
 - Los defaults de los flags `--config` y `--sarif-output`
   (`TestNewRootCmd_FlagDefaults`).
 - `TestNewRootCmd_VersionIsWired`: el `Version` del comando raíz es la variable

@@ -44,39 +44,44 @@ func exitCode(err error, shouldFail bool) int {
 // runApp executes the whole flow with its dependencies injected, so it can be
 // tested without a real config file or real scanners.
 //
-// Error messages go to stderr; only the Markdown report goes to stdout, because
-// that stdout is what a later block will post as a PR comment.
+// Error messages and orchestrator warnings go to stderr; only the Markdown
+// report goes to stdout, because that stdout is posted as the PR comment.
 func runApp(
 	cfgPath, sarifOutPath string,
 	loadConfig func(string) (config.Config, error),
 	runOrchestrator func(config.Config) (orchestrator.Result, error),
 	writeFile func(string, []byte) error,
-	stdout io.Writer,
+	stdout, stderr io.Writer,
 ) int {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pipelineguard: loading config %q: %v\n", cfgPath, err)
+		fmt.Fprintf(stderr, "pipelineguard: loading config %q: %v\n", cfgPath, err)
 		return exitCode(err, false)
 	}
 
 	result, err := runOrchestrator(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pipelineguard: %v\n", err)
+		fmt.Fprintf(stderr, "pipelineguard: %v\n", err)
 		return exitCode(err, false)
 	}
 
+	// Warnings never go to stdout: that would end up in the PR comment.
+	for _, w := range result.Warnings {
+		fmt.Fprintf(stderr, "pipelineguard: warning: %s\n", w)
+	}
+
 	if err := writeFile(sarifOutPath, result.SARIF); err != nil {
-		fmt.Fprintf(os.Stderr, "pipelineguard: writing SARIF report to %q: %v\n", sarifOutPath, err)
+		fmt.Fprintf(stderr, "pipelineguard: writing SARIF report to %q: %v\n", sarifOutPath, err)
 		return exitCode(err, false)
 	}
 
 	if _, err := fmt.Fprintln(stdout, result.Markdown); err != nil {
-		fmt.Fprintf(os.Stderr, "pipelineguard: writing report to stdout: %v\n", err)
+		fmt.Fprintf(stderr, "pipelineguard: writing report to stdout: %v\n", err)
 		return exitCode(err, false)
 	}
 
 	if result.ShouldFail {
-		fmt.Fprintf(os.Stderr, "pipelineguard: %s\n", result.Reason)
+		fmt.Fprintf(stderr, "pipelineguard: %s\n", result.Reason)
 	}
 
 	return exitCode(nil, result.ShouldFail)
@@ -101,7 +106,7 @@ func newRootCmd() *cobra.Command {
 			writeFile := func(path string, data []byte) error {
 				return os.WriteFile(path, data, 0o644)
 			}
-			code := runApp(cfgPath, sarifOutPath, config.Load, realOrchestrator, writeFile, os.Stdout)
+			code := runApp(cfgPath, sarifOutPath, config.Load, realOrchestrator, writeFile, os.Stdout, os.Stderr)
 			os.Exit(code)
 			return nil
 		},

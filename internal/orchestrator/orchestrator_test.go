@@ -158,6 +158,16 @@ func TestRun_SemgrepFlagIgnored(t *testing.T) {
 	res, err := Run(c, mustNotCall(t), mustNotCall(t))
 	require.NoError(t, err)
 	assert.Empty(t, res.Findings)
+	assert.False(t, res.ShouldFail)
+	require.Len(t, res.Warnings, 1, "the user must be told semgrep is ignored")
+	assert.Contains(t, res.Warnings[0], "semgrep")
+	assert.Contains(t, res.Warnings[0], "se ignora")
+}
+
+func TestRun_SemgrepFalseNoWarnings(t *testing.T) {
+	res, err := Run(cfgWith(false, false), mustNotCall(t), mustNotCall(t))
+	require.NoError(t, err)
+	assert.Empty(t, res.Warnings)
 }
 
 func TestRun_EnforceShouldFailMatchesPolicy(t *testing.T) {
