@@ -29,6 +29,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       # Move the floating major tag (e.g. v1) to the release just published, so
       # users can pin `uses: CamiloUrrea/PipelineGuard/action@v1`. Runs only if
