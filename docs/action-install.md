@@ -8,12 +8,15 @@ puedan invocar `pipelineguard` directamente.
 Lo consume la composite action (`action.yml`, step 1). Los tests bats validan
 el flujo con fixtures locales y un `curl` falso, nunca contra GitHub. Además, el
 script ya corrió de verdad en un workflow real, instalando la release publicada
-`v0.1.0` (ver `docs/action.md`).
+`v0.1.0` (ver `docs/action.md`). Con `v1.1.0` también se verificó en ejecuciones
+reales (runner `ubuntu-24.04`): resolvió `v1` a `v1.1.0`, descargó
+`pipelineguard_1.1.0_linux_amd64.tar.gz` y verificó el checksum; y con la Action
+fijada a `@v1.1.0-rc.1` sin input `version:`, instaló el binario de ese tag.
 
 ## Flujo del script
 
 Ejecutado como `install.sh <version>` (p. ej. `install.sh v1.2.3`, o un major
-desnudo como `install.sh v1`). Desde v1.1.0, la Action le pasa
+desnudo como `install.sh v1`). En `v1.1.0`, la Action le pasa
 `inputs.version || github.action_ref`, así que con el input vacío recibe el ref
 con el que se fijó la Action (`v1`, `v1.1.0`, o una rama/SHA que rechaza; ver
 `docs/action.md`, "Qué versión del binario se instala"):

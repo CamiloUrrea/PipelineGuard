@@ -16,11 +16,12 @@ con una línea:
 > `pipelineguard-demo-vulnerable-app`, con la release `v0.1.0` publicada. Esa
 > validación end-to-end encontró el bug de `-f` vs `-F` en `gh api` (ver
 > `docs/action-comment.md`). Se repitió con `v1.0.0` (`action@v1`, ver
-> "Estado del proyecto" en el `README.md`). Los cambios del Bloque 23 todavía no
-> corrieron en GitHub (ver el estado de verificación más abajo).
+> "Estado del proyecto" en el `README.md`). Los cambios del Bloque 23, publicados
+> en `v1.1.0`, también corrieron en GitHub (ver el estado de verificación más
+> abajo).
 
 **Steps.** Con el Bloque 16 (`gate.sh`) la Action tenía 5 steps. El Bloque 23
-(desde v1.1.0) agrega 2 más, *Add report to job summary* y *Warn about skipped
+(publicado en `v1.1.0`) agrega 2 más, *Add report to job summary* y *Warn about skipped
 integrations*, y marca la subida del SARIF y el comentario del PR como
 integraciones **opcionales** (`continue-on-error: true`): ahora son **7 steps**,
 y el gate sigue siendo el último y el único que decide el resultado del job.
@@ -28,13 +29,16 @@ y el gate sigue siendo el último y el único que decide el resultado del job.
 > **Estado de verificación (Bloque 23).** Validado localmente: `action.yml`
 > como YAML; los dos `run:` nuevos extraídos y pasados por shellcheck y
 > ejecutados a mano con variables de prueba; y actionlint sobre
-> `.github/workflows/self-scan.yml`, que lee los inputs de `./action`. Todavía
-> **no** corrió en GitHub. La documentación oficial ("Metadata syntax for GitHub
-> Actions") lista `continue-on-error` e `id` entre las claves de
-> `runs.steps[*]` de una composite action, pero no dice explícitamente que
-> `continue-on-error` aplique a los steps con `uses:` (el de upload-sarif). Eso
-> lo confirmará la primera corrida real del dogfooding (`self-scan.yml`, ver
-> `docs/ci-cd.md`).
+> `.github/workflows/self-scan.yml`, que lee los inputs de `./action`. La
+> documentación oficial ("Metadata syntax for GitHub Actions") lista
+> `continue-on-error` e `id` entre las claves de `runs.steps[*]` de una
+> composite action, sin decir explícitamente que `continue-on-error` aplique a
+> los steps con `uses:` (el de upload-sarif). Eso quedó **verificado en una
+> ejecución real** (runner `ubuntu-24.04`): con upload-sarif fallando por una
+> ruta inexistente, los steps siguientes se ejecutaron, apareció el aviso del
+> step 6 y el reporte quedó en el resumen del job; el resultado lo decidió el
+> gate. También se verificó que, sin `pull-requests: write`, el comentario falla
+> con `403`, aparece el aviso y el job solo falla por el gate.
 
 ## Permisos requeridos en el workflow que la usa
 
@@ -68,7 +72,7 @@ responsabilidad del workflow llamante.
 El step 7 (`Enforce PipelineGuard result`, `action/scripts/gate.sh`) lee
 `exit-code` y decide si el job completo falla — ver `docs/action-gate.md`.
 
-## Qué versión del binario se instala (desde v1.1.0)
+## Qué versión del binario se instala
 
 El step 1 calcula `PIPELINEGUARD_VERSION: ${{ inputs.version || github.action_ref }}`:
 si el input `version` viene vacío (el default), usa `github.action_ref`, el ref
@@ -86,9 +90,16 @@ desde `env:` (no dentro de `run:`); así se hace aquí. `install.sh`
 Con `uses: ./action` (una Action local, como en `self-scan.yml`) no hay un ref de
 release del que inferir la versión, por eso ese workflow pasa `version: v1`.
 
-> **Solo desde v1.1.0.** En `v1.0.x` el default de `version` es `v1` y
-> `github.action_ref` no se usa: fijar `@v1.0.0` sigue instalando el último
-> `1.x`. Para fijar el binario en esas versiones hay que pasar `version:`.
+**Verificado en ejecuciones reales** (runner `ubuntu-24.04`): con `@v1`,
+`install.sh` resolvió `v1` a `v1.1.0`, descargó
+`pipelineguard_1.1.0_linux_amd64.tar.gz` y verificó el checksum; con la Action
+fijada a un tag completo (`@v1.1.0-rc.1`) y sin input `version:`, instaló el
+binario de ese tag (`github.action_ref`).
+
+> **Con `v1.0.x` el comportamiento es el anterior.** En esas versiones el
+> default de `version` es `v1` y `github.action_ref` no se usa: fijar `@v1.0.0`
+> sigue instalando el último `1.x`. Para fijar el binario en esas versiones hay
+> que pasar `version:`.
 
 ## Steps
 
@@ -172,21 +183,21 @@ runs:
    exit code `1`/`2` del binario; sí falla si el binario no está en PATH.
 3. **Upload SARIF results** (`id: sarif`) — sube el archivo SARIF a GitHub con
    la action oficial `github/codeql-action/upload-sarif`. `if: always()` para que
-   corra aunque un step anterior haya fallado de verdad. `continue-on-error: true`
-   (desde v1.1.0): es una integración **opcional**; si falla, el step queda con
+   corra aunque un step anterior haya fallado de verdad. `continue-on-error: true`:
+   es una integración **opcional**; si falla, el step queda con
    `outcome: failure` pero no pone el job en rojo. Ver la sección siguiente.
 4. **Post or update PR comment** (`id: comment`) — corre `scripts/comment.sh`,
    que publica el reporte Markdown como comentario del PR, **actualizando** el
    comentario anterior de PipelineGuard en vez de crear uno nuevo. Restringido a
-   eventos `pull_request`. También `continue-on-error: true` (desde v1.1.0). Ver
+   eventos `pull_request`. También `continue-on-error: true`. Ver
    `docs/action-comment.md`.
-5. **Add report to job summary** (desde v1.1.0) — `if: always()`. Si
+5. **Add report to job summary** — `if: always()`. Si
    `REPORT_PATH` (`steps.run.outputs.report-path`, vía `env:`) no está vacío y el
    archivo existe, hace `cat "$REPORT_PATH" >>"$GITHUB_STEP_SUMMARY"`: el reporte
    queda visible en la página del run aunque el comentario no se haya podido
    publicar (o en un `push`, donde no hay PR). Si no hay reporte (binario
    ausente), no hace nada y no falla.
-6. **Warn about skipped integrations** (desde v1.1.0) — corre solo si
+6. **Warn about skipped integrations** — corre solo si
    `steps.sarif.outcome == 'failure' || steps.comment.outcome == 'failure'`
    (`outcome` es el resultado **antes** de aplicar `continue-on-error`; la
    `conclusion` de esos steps sería `success`). Emite un
@@ -202,7 +213,7 @@ runs:
    (fallo de la herramienta), y `exit 1` con mensaje de bug de wiring si el valor
    viene vacío o no es uno de esos tres códigos. `if: always()` para que corra
    siempre. Es el **último** step y el **único** que decide el resultado final del
-   job: desde v1.1.0, un fallo de los steps 3 o 4 ya no lo decide. Ver
+   job: un fallo de los steps 3 o 4 no lo decide (en `v1.0.x` sí). Ver
    `docs/action-gate.md`.
 
 ## Step 3 — Subida de SARIF a GitHub Security
@@ -253,7 +264,7 @@ Investigado en la documentación de `github/codeql-action/upload-sarif`:
   `pipelineguard` siempre escribe un SARIF **válido** aunque no haya hallazgos
   (`"results": []`, `"rules": []`, nunca `null` — requisito de `docs/sarif.md`).
 
-**Desde v1.1.0**, por `continue-on-error: true`, cualquiera de esos fallos deja el
+Por `continue-on-error: true`, cualquiera de esos fallos deja el
 step con `outcome: failure` pero **no** pone el job en rojo: el step 6 emite un
 `::warning` y el reporte queda en el resumen del job (step 5). En `v1.0.x`, el
 fallo de este step hacía fallar el job aunque el escaneo hubiera ido bien.
@@ -277,7 +288,7 @@ Si no hay binario `pipelineguard`, hay dos variantes:
   pipelineguard* falla (`run.sh` sale con `exit 1`: `pipelineguard is not on
   PATH — the install step must run first`).
 
-En ambos casos, después (comportamiento desde v1.1.0):
+En ambos casos, después (comportamiento de `v1.1.0`):
 
 | Step | Resultado | Por qué |
 |------|-----------|---------|
@@ -309,7 +320,7 @@ ni el mensaje de *Enforce* dan la causa real: está en el primer step en rojo
   en ese tipo de evento (ver `docs/action-comment.md`). El step 7 (`gate.sh`) es
   el que finalmente hace fallar el job por el resultado del análisis de
   seguridad.
-- **`continue-on-error: true` en los steps 3 y 4** (desde v1.1.0) — son
+- **`continue-on-error: true` en los steps 3 y 4** — son
   integraciones opcionales: su fallo se reporta (step 6) pero no decide el
   resultado del job.
 - **`GH_TOKEN: ${{ github.token }}`** — el step 4 usa `gh api`, que lee el token

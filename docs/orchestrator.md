@@ -69,11 +69,14 @@ Markdown del comentario (ver `docs/cmd.md`). Hoy el único aviso es el de semgre
    - si `cfg.Scanners.Gitleaks` es `false`, **`runGitleaks` no se invoca nunca**.
 2. **trivy** — mismo patrón exacto con `cfg.Scanners.Trivy`, `runTrivy` y
    `parsers.ParseTrivy` (mensajes `running trivy scanner` / `parsing trivy output`).
-3. **semgrep** — no está implementado (es v1.1): con `cfg.Scanners.Semgrep` en
+3. **semgrep** — no está implementado ni en el roadmap; el flag se acepta por
+   compatibilidad. Con `cfg.Scanners.Semgrep` en
    `true` no se corre nada y el resultado es idéntico al de `false`, pero se
    agrega a `Result.Warnings` el aviso
    `scanners.semgrep está en true, pero semgrep aún no está implementado (roadmap v1.1): se ignora`.
-   No es un error. (Hasta el Bloque 21 se ignoraba en silencio.)
+   No es un error. (Hasta el Bloque 21 se ignoraba en silencio.) El texto del
+   aviso, que viene del código, todavía menciona "roadmap v1.1": está
+   desactualizado, semgrep no tiene versión prevista.
 4. `score := scoring.ComputeScore(findings, cfg.SeverityWeights)`
 5. `counts := scoring.CountBySeverity(findings)`
 6. `markdown := report.GenerateMarkdown(findings, score, counts)`

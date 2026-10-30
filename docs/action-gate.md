@@ -1,7 +1,7 @@
 # Enforcement final (`action/scripts/gate.sh`)
 
 `action/scripts/gate.sh` es el **último step** de la composite action
-(`action/action.yml`): el quinto hasta v1.0.x y el **séptimo** desde v1.1.0, tras
+(`action/action.yml`): el quinto hasta v1.0.x y el **séptimo** en v1.1.0, tras
 *Add report to job summary* y *Warn about skipped integrations* (Bloque 23). Es
 el único lugar donde el resultado de `pipelineguard` puede hacer fallar el job
 completo — todos los steps anteriores (instalar, correr, subir SARIF, comentar el

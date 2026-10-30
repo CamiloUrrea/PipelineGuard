@@ -45,7 +45,7 @@ En cualquier caso de error, el `Config` devuelto es el valor cero (`Config{}`).
 scanners:
   gitleaks: true
   trivy: true
-  semgrep: false        # reservado para v1.1: hoy se acepta pero se ignora (con true, aviso en stderr)
+  semgrep: false        # se acepta por compatibilidad, pero se ignora (con true, aviso en stderr)
 
 enforce: false           # si es true, el build falla si ALGÚN hallazgo alcanza fail_threshold
 fail_threshold: CRITICAL # CRITICAL | HIGH | MEDIUM
@@ -62,20 +62,20 @@ severity_weights:
 |--------------------|------------------|----------------------------------------------------------------------------|
 | `scanners.gitleaks`| `bool`           | Ejecutar gitleaks (detección de secretos).                                  |
 | `scanners.trivy`   | `bool`           | Ejecutar trivy (vulnerabilidades de dependencias).                          |
-| `scanners.semgrep` | `bool`           | Reservado para v1.1 (SAST). Se **acepta** en el YAML, pero `internal/orchestrator` lo **ignora**: con `true` no corre semgrep ni da error, y el resultado es el mismo que con `false`. Desde el Bloque 22 sí se avisa: el binario imprime en **stderr** `pipelineguard: warning: scanners.semgrep está en true, pero semgrep aún no está implementado (roadmap v1.1): se ignora` (ver `docs/orchestrator.md`). |
+| `scanners.semgrep` | `bool`           | Fuera del roadmap: se sigue **aceptando** en el YAML por compatibilidad, pero `internal/orchestrator` lo **ignora**: con `true` no corre semgrep ni da error, y el resultado es el mismo que con `false`. Desde el Bloque 22 sí se avisa: el binario imprime en **stderr** `pipelineguard: warning: scanners.semgrep está en true, pero semgrep aún no está implementado (roadmap v1.1): se ignora` (ver `docs/orchestrator.md`). Ese texto lo emite el binario y todavía menciona "roadmap v1.1": está desactualizado, semgrep no tiene versión prevista. |
 | `enforce`          | `bool`           | Si es `true`, el build falla cuando **algún** hallazgo tiene severidad **igual o mayor** que `fail_threshold`. Implementado en `policy.ShouldFail` (ver `docs/policy.md`); `cmd/pipelineguard` lo traduce en el exit code `1` (ver `docs/cmd.md`). Con `false` (default) el modo es informativo y nunca falla. |
 | `fail_threshold`   | `string`         | Umbral de **severidad** para el enforcement: `CRITICAL` \| `HIGH` \| `MEDIUM`. Se compara hallazgo por hallazgo; **no** tiene relación con el risk score total. |
 | `severity_weights` | `map[string]int` | Peso de cada severidad en el risk score. Sobreescribe los pesos por defecto llave por llave. |
 
-### `ignore_paths`: aceptado, pero **todavía no se aplica** (reservado para v1.1)
+### `ignore_paths`: aceptado, pero **todavía no se aplica** (pendiente, sin versión asignada)
 
 `Config` tiene el campo `IgnorePaths` (`ignore_paths` en el YAML, `[]string`), y
 `Load` lo parsea y lo guarda tal cual. **Ningún código lo usa**: no se filtran
 hallazgos ni rutas, y no se pasa a gitleaks ni a trivy. Escribir
-`ignore_paths` en `.pipelineguard.yml` **no tiene ningún efecto** en v1.0: los
+`ignore_paths` en `.pipelineguard.yml` **no tiene ningún efecto** (ni en v1.0.x ni en v1.1.0): los
 hallazgos en esas rutas siguen apareciendo en el reporte, en el SARIF y en la
 decisión de enforcement. Por eso no aparece en el ejemplo de arriba. Queda
-reservado para v1.1.
+pendiente, sin versión asignada.
 
 ## Comportamiento de merge con los defaults
 

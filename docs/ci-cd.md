@@ -19,10 +19,11 @@ empuja un tag `v*`. Desde el Bloque 23 hay además un workflow de *dogfooding*
 >   `cmd/pipelineguard`, el que ahora sale con código `2` (ver `docs/cmd.md`).
 > - **`release.yml`**: el tag `v0.1.0` se publicó como GitHub Release, y la
 >   composite action instaló sus assets en un workflow real (ver
->   `docs/action.md`).
+>   `docs/action.md`). La primera publicación de `v1.1.0` falló por la elección
+>   de tag de GoReleaser; ver "Lección de v1.1.0: dos tags en el mismo commit".
 >
-> Lo que **todavía no** corrió de verdad está en "Qué falta verificar en una
-> corrida real", al final.
+> Lo verificado con `v1.1.0` y lo que **todavía no** corrió de verdad está en
+> "Qué ya se verificó y qué falta en una corrida real", al final.
 
 ## `ci.yml`
 
@@ -85,7 +86,7 @@ Corrido localmente (govulncheck v1.9.0, Go local 1.27.0): `Your code is affected
 by 0 vulnerabilities`, exit `0`. Los avisos no alcanzables que reportó eran todos
 de la stdlib del Go **local** 1.27.0 (corregidos en 1.27.2/1.27.3), no de las
 dependencias del módulo; en CI el resultado depende del parche de Go 1.26 que
-instale `setup-go`. Este job todavía no corrió en GitHub.
+instale `setup-go`. En GitHub ya corrió en verde (ver al final).
 
 ### Job `bash`
 
@@ -150,8 +151,10 @@ los hallazgos (p. ej. si gitleaks marca algún fixture de prueba) nunca hacen
 fallar el job; un fallo de la herramienta (exit `2`) sí.
 
 **Validación local:** `actionlint` (v1.7.12) sin hallazgos sobre `self-scan.yml`,
-`ci.yml` y `release.yml`. actionlint también lee los inputs de `./action`. Todavía
-no corrió en GitHub.
+`ci.yml` y `release.yml`. actionlint también lee los inputs de `./action`.
+
+**En GitHub:** el escaneo propio funciona en el repo (verificado en ejecuciones
+reales, runner `ubuntu-24.04`).
 
 ## Dependabot (`.github/dependabot.yml`, Bloque 23)
 
@@ -167,13 +170,14 @@ Los PRs de Dependabot usan `commit-message: { prefix: chore, include: scope }`,
 es decir, `chore(deps): …`. Con los regex de `.goreleaser.yaml` (Bloque 23),
 esos commits quedan fuera del changelog (ver `docs/goreleaser.md`).
 
-> **No verificado:** la documentación oficial de Dependabot solo dice que, para
-> `github-actions`, `directory: /` revisa `.github/workflows` y un `action.yml`
-> en la **raíz**. No documenta explícitamente un `action.yml` en otro
-> directorio; la entrada `/action` sigue la convención habitual para composite
-> actions en subdirectorios. Se confirmará cuando Dependabot corra en GitHub (si
-> no abre PRs para `action/action.yml`, revisar esta entrada). El archivo se
-> validó solo como YAML sintáctico.
+> **Estado:** Dependabot ya funciona en el repo. Lo que sigue **sin confirmar**
+> es la entrada `directory: /action` en particular: la documentación oficial de
+> Dependabot solo dice que, para `github-actions`, `directory: /` revisa
+> `.github/workflows` y un `action.yml` en la **raíz**, y no documenta
+> explícitamente un `action.yml` en otro directorio; la entrada `/action` sigue
+> la convención habitual para composite actions en subdirectorios. Si Dependabot
+> no abre PRs para `action/action.yml` cuando haya una versión nueva de
+> `upload-sarif`, revisar esta entrada.
 
 ## `release.yml`
 
@@ -190,7 +194,10 @@ Un único job (`goreleaser`):
    toolchain de Go para compilar la matriz de binarios.
 3. `goreleaser/goreleaser-action@v7` con `version: "~> v2"` (instala la última
    versión 2.x de la herramienta GoReleaser, coherente con `version: 2` en
-   `.goreleaser.yaml`) y `args: release --clean`.
+   `.goreleaser.yaml`) y `args: release --clean`. En el entorno del step,
+   además del token, fija `GORELEASER_CURRENT_TAG: ${{ github.ref_name }}`: así
+   GoReleaser publica exactamente el tag que disparó el workflow (ver la
+   lección de abajo).
 4. **`Update floating major version tag`**: solo corre si GoReleaser tuvo éxito
    (comportamiento por defecto de los steps). Deriva el major con
    `MAJOR="${GITHUB_REF_NAME%%.*}"` (`v1.0.0` → `v1`, `v0.1.0` → `v0`), crea el tag
@@ -217,6 +224,10 @@ Un único job (`goreleaser`):
      extrayendo el `run:` del YAML y ejecutándolo con un `git` falso:
      `v1.1.0-rc.1`, `v2.0.0-beta` y `v1.2.3+build.5` → se omite;
      `v1.2.3` / `v1.0.0` / `v0.1.0` → `tag -fa v1|v0` + `push --force`.
+     **Verificado también en una ejecución real:** al publicarse `v1.1.0-rc.1`,
+     el tag `v1` siguió apuntando a `v1.0.1` (`7e7922d`), comprobado con
+     `git ls-remote --tags origin`; y `v1.1.0-rc.1` apareció en la página de
+     Releases con la etiqueta *Pre-release*, con `v1.0.1` todavía como *Latest*.
 
 ### Permisos
 
@@ -243,6 +254,22 @@ crear ni configurar un secret nuevo**. `goreleaser-action` lo necesita en el
 entorno para autenticar las llamadas a la API de GitHub (crear el Release, subir
 assets, leer PRs/commits para el changelog).
 
+### Lección de v1.1.0: dos tags en el mismo commit
+
+La primera publicación de `v1.1.0` **falló**: los tags `v1.1.0` y `v1.1.0-rc.1`
+apuntaban al mismo commit, y GoReleaser eligió el rc en vez del tag que había
+disparado el workflow. Se corrigió fijando el tag en el step de GoReleaser:
+
+```yaml
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+```
+
+`github.ref_name` es el nombre del tag del `push` que lanzó `release.yml`, así
+que GoReleaser ya no tiene que deducirlo del commit. Con eso `v1.1.0` quedó
+publicada. Ver también `docs/goreleaser.md`.
+
 ## Por qué los jobs de `ci.yml` corren en paralelo
 
 Ninguno depende del resultado de otro: `go` no necesita que `lint` termine para
@@ -252,28 +279,37 @@ a la vez en runners separados — el feedback de un PR llega en el tiempo del jo
 `shellcheck`/`bats` de `go vet`/`go test`: son dominios de falla distintos (Go
 vs. bash) y no hay razón para serializarlos.
 
-## Qué falta verificar en una corrida real
+## Qué ya se verificó y qué falta en una corrida real
 
 Con el tag `v1.0.0` ya corrieron de verdad el step de GoReleaser y el step
 **`Update floating major version tag`**: la Action fijada como
-`CamiloUrrea/PipelineGuard/action@v1` resolvió `v1` a `v1.0.0` en el repo demo
-(ver "Estado del proyecto" en el `README.md` de la raíz), lo que también ejercitó
-`install.sh` (`resolve_version`) contra la API real de Releases.
+`CamiloUrrea/PipelineGuard/action@v1` resolvió `v1` a `v1.0.0` en el repo demo,
+lo que también ejercitó `install.sh` (`resolve_version`) contra la API real de
+Releases.
 
-Sigue **sin** correr en GitHub:
+Con `v1.1.0` (ejecuciones reales, runner `ubuntu-24.04`; ver "Estado del
+proyecto" en el `README.md` de la raíz):
 
-- **La guardia de pre-release** del step del tag flotante y
-  **`prerelease: auto`**: nunca se ha empujado un tag con sufijo
-  (`v1.1.0-rc.1`). Localmente, la guardia solo se ejecutó con un `git` falso (ver
-  el punto 4 de `release.yml`) y `prerelease: auto` solo pasó `goreleaser check`.
-- **`self-scan.yml`** (Bloque 23): validado solo con actionlint. Su primera
-  corrida será también la primera corrida real de los cambios del Bloque 23 en
-  la Action (`continue-on-error` en un step `uses:`, `steps.<id>.outcome`,
-  resumen del job).
-- **`github.action_ref` como versión del binario**: `self-scan.yml` pasa
-  `version: v1`, así que no lo ejercita. Se probará con el primer uso real de
-  `@v1.1.0` sin input `version`.
-- **Dependabot**, en especial la entrada `directory: /action` (ver arriba).
+- **Release:** `v1.1.0` está publicada y el tag flotante `v1` apunta a ella
+  (commit `72518af`), tras corregir la elección de tag de GoReleaser (ver
+  "Lección de v1.1.0" arriba).
+- **`install.sh`:** resuelve `v1` a `v1.1.0`, descarga
+  `pipelineguard_1.1.0_linux_amd64.tar.gz` y verifica el checksum.
+- **`github.action_ref` como versión del binario:** con la Action fijada a un
+  tag completo (`@v1.1.0-rc.1`) y sin input `version:`, se instaló el binario de
+  ese tag.
+- **`continue-on-error` en un step `uses:`** de la composite action: verificado
+  en una ejecución real con upload-sarif fallando por ruta inexistente (los
+  steps siguientes corren, aparece el aviso, el reporte queda en el resumen del
+  job y el gate decide). Sin `pull-requests: write`, el comentario falla con
+  `403`, aparece el aviso y el job solo falla por el gate.
+- **`self-scan.yml`** y **Dependabot** funcionan en el repo.
+
+Sigue **sin** verificarse:
+
+- **La entrada `directory: /action` de Dependabot** en particular (ver arriba).
+- Runners Windows, macOS y Ubuntu 26; PRs desde forks; repos privados sin
+  GitHub Advanced Security; repos con muchos hallazgos.
 
 Los cambios del Bloque 22 en `ci.yml` (`permissions: contents: read` y el job
 `govulncheck`) ya corrieron en verde en GitHub.

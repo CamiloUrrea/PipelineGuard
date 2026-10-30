@@ -2,7 +2,7 @@
 
 ## 1. Visión general
 
-**PipelineGuard** es una GitHub Action que orquesta escáneres de seguridad ya probados en la industria (gitleaks, trivy — semgrep en fase 2) y consolida sus resultados en **un único reporte normalizado, con severidad unificada y un risk score agregado**. Se agrega a cualquier repositorio con un step (`uses: CamiloUrrea/PipelineGuard/action@v1`) más los steps que instalan gitleaks y trivy, y corre automáticamente en cada Pull Request.
+**PipelineGuard** es una GitHub Action que orquesta escáneres de seguridad ya probados en la industria (gitleaks, trivy) y consolida sus resultados en **un único reporte normalizado, con severidad unificada y un risk score agregado**. Se agrega a cualquier repositorio con un step (`uses: CamiloUrrea/PipelineGuard/action@v1`) más los steps que instalan gitleaks y trivy, y corre automáticamente en cada Pull Request.
 
 El valor del proyecto no está en la detección (eso ya lo hacen bien las herramientas subyacentes), sino en la **orquestación, normalización y experiencia de desarrollador**: un solo reporte legible en vez de un formato de salida distinto por herramienta que nadie revisa.
 
@@ -17,7 +17,7 @@ El valor del proyecto no está en la detección (eso ya lo hacen bien las herram
 - Distribución como composite action + binario en GitHub Releases.
 
 ### Fuera de alcance para v1 (roadmap)
-- **v1.1** — integración con **semgrep** (SAST) y aplicación real de `ignore_paths` (hoy se acepta en el YAML pero no se aplica).
+- **Pendiente, sin versión asignada** — aplicación real de `ignore_paths` (hoy se acepta en el YAML pero no se aplica).
 - **v1.2** — modo "diff-only": mostrar solo hallazgos *nuevos* introducidos por el PR, comparando contra un baseline.
 - **v1.3** — soporte para Checkov/tfsec (IaC).
 - **v1.4** — firma de binarios con cosign (Sigstore) para trazabilidad de la cadena de suministro.
@@ -41,7 +41,7 @@ Repo del usuario
    └─ .github/workflows/*.yml (una línea: uses: CamiloUrrea/PipelineGuard/action@v1)
         └─ composite action (action/action.yml, 7 steps; 5 hasta v1.0.x)
              ├─ 1. install.sh
-             │     ├─ versión: input `version` o, si viene vacío, github.action_ref (desde v1.1.0)
+             │     ├─ versión: input `version` o, si viene vacío, github.action_ref (v1.1.0; en v1.0.x, `v1`)
              │     ├─ vX.Y.Z tal cual; "v1" → la release real más alta (API de Releases); rama/SHA → error
              │     ├─ detecta OS/arch del runner
              │     ├─ descarga el binario correcto desde GitHub Releases
@@ -113,7 +113,7 @@ Cada escáner reporta en su propio formato. Todo se normaliza a una estructura c
 
 ```go
 type Finding struct {
-    Tool     string // "gitleaks" | "trivy" (semgrep llegará en v1.1)
+    Tool     string // "gitleaks" | "trivy"
     Severity string // enum unificado: CRITICAL | HIGH | MEDIUM | LOW | INFO
     File     string
     Line     int
@@ -143,7 +143,7 @@ Mapeo de severidad nativa → enum unificado:
 scanners:
   gitleaks: true
   trivy: true
-  semgrep: false   # reservado para v1.1: hoy se acepta pero se ignora (con true, aviso en stderr)
+  semgrep: false   # se acepta por compatibilidad, pero se ignora (con true, aviso en stderr)
 
 enforce: false             # si es true, falla si ALGÚN hallazgo alcanza fail_threshold
 fail_threshold: CRITICAL   # CRITICAL | HIGH | MEDIUM
@@ -157,8 +157,8 @@ severity_weights:
 ```
 
 > `ignore_paths` (lista de globs) se **acepta** en el YAML, pero **no se aplica**
-> en v1.0: ningún código filtra hallazgos ni rutas con él. Está reservado para
-> v1.1 (ver `docs/config.md`).
+> (ni en v1.0.x ni en v1.1.0): ningún código filtra hallazgos ni rutas con él.
+> Está pendiente, sin versión asignada (ver `docs/config.md`).
 
 ## 9. Salidas
 
@@ -178,7 +178,7 @@ severity_weights:
 - SemVer estricto (`v1.0.0`, `v1.2.3`).
 - Tag flotante `v1` apuntando siempre al último release de la serie 1.x, para que los usuarios puedan fijar `uses: CamiloUrrea/PipelineGuard/action@v1`. Desde v1.1.0, el binario sigue a la versión de la Action: `@v1` instala el último `1.x` y `@v1.1.0` exactamente `v1.1.0` (`inputs.version || github.action_ref`, ver `docs/action.md`). En `v1.0.x`, `@v1.0.0` instala igualmente el último `1.x`.
 - Flujo completo automatizado en `.github/workflows/release.yml`: GoReleaser (build matrix multiplataforma → checksums → changelog → publicación del GitHub Release) y, solo si GoReleaser tuvo éxito, el step **`Update floating major version tag`**, que deriva el major del tag (`v1.0.0` → `v1`) y hace `git tag -fa` + `git push --force` de ese tag mayor sobre el commit recién publicado (ver `docs/ci-cd.md`). El tag mayor lo mueve ese step, no GoReleaser.
-- Pre-releases (`v1.1.0-rc.1`, cualquier tag que no sea `vX.Y.Z` limpio) **no** mueven el tag flotante, y `install.sh` tampoco las elige al resolver `v1`. Sí se pueden instalar pidiéndolas explícitamente (`version: v1.1.0-rc.1`, o fijando la Action a ese tag desde v1.1.0); GoReleaser las publica como *pre-release* (`prerelease: auto`).
+- Pre-releases (`v1.1.0-rc.1`, cualquier tag que no sea `vX.Y.Z` limpio) **no** mueven el tag flotante, y `install.sh` tampoco las elige al resolver `v1`. Sí se pueden instalar pidiéndolas explícitamente (`version: v1.1.0-rc.1`, o fijando la Action a ese tag con v1.1.0); GoReleaser las publica como *pre-release* (`prerelease: auto`).
 - Hoy `checksums.txt` **no** va firmado. La firma de binarios con cosign es roadmap **v1.4**.
 
 ## 12. Roadmap resumido
@@ -186,7 +186,8 @@ severity_weights:
 | Versión | Contenido |
 |---|---|
 | v1.0 | gitleaks + trivy, modo informativo, comentario en PR + SARIF |
-| v1.1 | integración con semgrep + aplicar `ignore_paths` |
+| v1.1 | publicada: el binario sigue a la versión de la Action; SARIF y comentario como integraciones opcionales; reporte en el resumen del job |
 | v1.2 | modo diff-only (solo hallazgos nuevos del PR) |
 | v1.3 | soporte IaC (Checkov/tfsec) |
 | v1.4 | firma de binarios con cosign |
+| Sin versión asignada | aplicar `ignore_paths` (pendiente) |

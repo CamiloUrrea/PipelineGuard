@@ -12,7 +12,25 @@ Release. Este archivo define todo ese flujo.
 > GoReleaser en cada tag `v*` y publica el GitHub Release (ver `docs/ci-cd.md`).
 > La release `v0.1.0` existe, y la Action instaló sus assets en un workflow real
 > (ver `docs/action.md`), así que la convención de nombres de abajo ya se
-> comprobó en la práctica.
+> comprobó en la práctica. Con `v1.1.0`, la Action descargó
+> `pipelineguard_1.1.0_linux_amd64.tar.gz` y verificó su checksum en un runner
+> real.
+
+## Lección de v1.1.0: qué tag publica GoReleaser
+
+La primera publicación de `v1.1.0` **falló**: los tags `v1.1.0` y
+`v1.1.0-rc.1` apuntaban al mismo commit, y GoReleaser, que deduce el tag
+actual a partir del commit, eligió el rc. Se corrigió en `release.yml` (no en
+`.goreleaser.yaml`) fijando el tag explícitamente en el entorno del step de
+GoReleaser:
+
+```yaml
+GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+```
+
+`github.ref_name` es el tag cuyo `push` disparó el workflow, así que la release
+siempre corresponde a ese tag aunque otro apunte al mismo commit. Es lo que
+pasa al promover una RC a estable sin commits nuevos. Ver `docs/ci-cd.md`.
 
 ## Cómo probarlo localmente
 
@@ -95,7 +113,9 @@ publica nada.
 (`v1.1.0-rc.1`, `v2.0.0-beta`), así que una RC ya no aparece como "Latest" en
 GitHub. Un tag limpio `vX.Y.Z` se publica como release normal. (El tag flotante
 y `install.sh` ya ignoraban las RC, porque filtran por formato `vX.Y.Z`.)
-Validado con `goreleaser check`; todavía no se empujó un tag RC real.
+Validado con `goreleaser check` y **verificado en una ejecución real**:
+`v1.1.0-rc.1` aparece en la página de Releases con la etiqueta *Pre-release*, y
+`v1.0.1` seguía como *Latest*.
 
 ## Convención de nombres de los artefactos (CRÍTICO para `install.sh`)
 
